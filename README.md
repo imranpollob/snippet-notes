@@ -9,8 +9,6 @@ A fast, distraction-free workspace to capture, search, and organize code snippet
 [![Storage](https://img.shields.io/badge/Storage-Local-teal)](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Snippets Preview](./Screenshot.jpeg)
-
 ---
 
 ## Highlights
