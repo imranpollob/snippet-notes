@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node -e \"import('fs').then(f => f.writeFileSync('out/.nojekyll', ''))\"",
     "start": "next start",
     "lint": "next lint"
   },

@@ -137,7 +137,16 @@ NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 ```
 
-If these environment variables are absent, the application gracefully functions in 100% private, offline-first local mode.
+### 5. Deploy to GitHub Pages (`github.io`)
+
+This project is configured for 1-click automated deployment to GitHub Pages via GitHub Actions:
+
+1. In your GitHub repository, navigate to **Settings** → **Pages**.
+2. Under **Build and deployment** → **Source**, select **GitHub Actions**.
+3. Push your code to `main` (or run the workflow manually under **Actions** → **Deploy to GitHub Pages**).
+4. Your site will automatically build and publish to `https://<your-username>.github.io/<repo-name>/`!
+
+*Note: If using Firebase, add your Firebase keys under **Settings** → **Secrets and variables** → **Actions**.*
 
 ---
 
