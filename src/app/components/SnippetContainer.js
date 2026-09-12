@@ -10,9 +10,11 @@ import Modal from "./Modal";
 import ThemeToggle from "./ThemeToggle";
 import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 import ExportImportModal from "./ExportImportModal";
+import SyncLocalModal from "./SyncLocalModal";
 import { RichContent } from "../../lib/syntaxHighlight";
 import {
   getLocalSnippets,
+  setLocalSnippets,
   addLocalSnippet,
   updateLocalSnippet,
   deleteLocalSnippet,
@@ -29,6 +31,7 @@ import {
   deleteDoc,
   query,
   where,
+  writeBatch,
 } from "firebase/firestore";
 
 const AUTOSAVE_DELAY = 800;
@@ -51,9 +54,28 @@ const SnippetContainer = () => {
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [modalTab, setModalTab] = useState("write"); // "write" | "split" | "preview"
 
+  // Approach B: Sync Local Snippets Modal state
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [localSnippetsToSync, setLocalSnippetsToSync] = useState([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
+
   const searchInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const autosaveFeedbackTimerRef = useRef(null);
+  const prevAuthUserRef = useRef(undefined);
+  const toastTimerRef = useRef(null);
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+      toastTimerRef.current = null;
+    }, 3500);
+  };
 
   // Initialize data on mount
   useEffect(() => {
@@ -70,12 +92,26 @@ const SnippetContainer = () => {
     // 3. If Firebase is configured, check auth state
     if (isFirebaseConfigured && auth) {
       const unsubscribe = onAuthStateChanged(auth, (authUser) => {
+        const wasLoggedOut = prevAuthUserRef.current === null;
+        prevAuthUserRef.current = authUser ? authUser.uid : null;
+
         if (authUser) {
           setUser(authUser);
           fetchFirebaseSnippets(authUser.uid);
+
+          // Check if there are local guest notes created while signed out
+          const local = getLocalSnippets();
+          if (local.length > 0) {
+            setLocalSnippetsToSync(local);
+            // Open confirmation modal on active login or first session detection
+            if (wasLoggedOut || !sessionStorage.getItem("ip_sync_dismissed")) {
+              setIsSyncModalOpen(true);
+            }
+          }
         } else {
           setUser(null);
           setSnippets(getLocalSnippets());
+          sessionStorage.removeItem("ip_sync_dismissed");
         }
       });
       return () => unsubscribe();
@@ -90,6 +126,11 @@ const SnippetContainer = () => {
   // Global keyboard shortcuts (conflict-free with browser defaults)
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Do not trigger global shortcuts when any modal or dialog is open
+      if (isSyncModalOpen || isModalOpen || isShortcutsOpen || isBackupOpen) {
+        return;
+      }
+
       const isInputActive =
         ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) ||
         document.activeElement?.isContentEditable;
@@ -143,10 +184,10 @@ const SnippetContainer = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [searchQuery, isComposerOpen]);
+  }, [searchQuery, isComposerOpen, isSyncModalOpen, isModalOpen, isShortcutsOpen, isBackupOpen]);
 
   const fetchFirebaseSnippets = async (uid) => {
-    if (!db) return;
+    if (!db) return [];
     setIsLoading(true);
     try {
       const snippetsCol = collection(db, "snippets");
@@ -156,13 +197,77 @@ const SnippetContainer = () => {
         id: snapshotDoc.id,
         ...snapshotDoc.data(),
       }));
-      setSnippets(snippetsList.length > 0 ? snippetsList : getLocalSnippets());
+      setSnippets(snippetsList);
+      return snippetsList;
     } catch (error) {
       console.error("Error fetching Firebase snippets:", error);
-      setSnippets(getLocalSnippets());
+      return [];
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Approach B: Sync Local Snippets to Cloud
+  const handleSyncLocalToCloud = async () => {
+    if (!user || !db || !isFirebaseConfigured || localSnippetsToSync.length === 0) {
+      setIsSyncModalOpen(false);
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const batch = writeBatch(db);
+      const now = Date.now();
+
+      localSnippetsToSync.forEach((snippet) => {
+        const docRef = doc(collection(db, "snippets"));
+        const { id, ...dataToSave } = snippet;
+        batch.set(docRef, {
+          title: dataToSave.title || "Untitled snippet",
+          data: dataToSave.data || "",
+          language: dataToSave.language || "markdown",
+          tags: Array.isArray(dataToSave.tags) ? dataToSave.tags : [],
+          pinned: Boolean(dataToSave.pinned),
+          createdAt: dataToSave.createdAt || now,
+          updatedAt: dataToSave.updatedAt || now,
+          uid: user.uid,
+        });
+      });
+
+      await batch.commit();
+
+      const syncedCount = localSnippetsToSync.length;
+      // Clear local storage after successful cloud upload
+      setLocalSnippets([]);
+      setLocalSnippetsToSync([]);
+      setIsSyncModalOpen(false);
+      sessionStorage.removeItem("ip_sync_dismissed");
+
+      // Reload fresh cloud snippets into UI
+      await fetchFirebaseSnippets(user.uid);
+
+      showToast(`Merged ${syncedCount} local snippet${syncedCount === 1 ? "" : "s"} into your cloud library!`);
+    } catch (error) {
+      console.error("Error syncing local snippets to cloud:", error);
+      showToast("Failed to upload local snippets. Please check connection.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Approach B: Discard Local Notes
+  const handleDiscardLocal = () => {
+    setLocalSnippets([]);
+    setLocalSnippetsToSync([]);
+    setIsSyncModalOpen(false);
+    sessionStorage.removeItem("ip_sync_dismissed");
+    showToast("Local notes discarded. Using cloud library.");
+  };
+
+  // Approach B: Decide Later
+  const handleCloseSyncModal = () => {
+    setIsSyncModalOpen(false);
+    sessionStorage.setItem("ip_sync_dismissed", "true");
   };
 
   const handleAddSnippet = async (newSnippet) => {
@@ -796,6 +901,29 @@ const SnippetContainer = () => {
         totalSnippets={totalSnippets}
         onImportSuccess={(newSnippets) => setSnippets(newSnippets)}
       />
+
+      {/* Approach B: Sync Local Snippets Modal */}
+      <SyncLocalModal
+        isOpen={isSyncModalOpen}
+        onClose={handleCloseSyncModal}
+        localSnippets={localSnippetsToSync}
+        onSync={handleSyncLocalToCloud}
+        onDiscard={handleDiscardLocal}
+        isSyncing={isSyncing}
+        userEmail={user?.email}
+      />
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="app-toast app-toast-success" role="status">
+          <span className="app-toast-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </span>
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 };
