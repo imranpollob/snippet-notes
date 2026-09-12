@@ -2,11 +2,12 @@
 
 import React, { useEffect } from "react";
 
-const Modal = ({ show, onClose, children }) => {
+const Modal = ({ show, onClose, children, maxWidth = "860px" }) => {
   useEffect(() => {
-    if (!show) {
-      return undefined;
-    }
+    if (!show) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
@@ -15,7 +16,10 @@ const Modal = ({ show, onClose, children }) => {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = originalOverflow;
+    };
   }, [show, onClose]);
 
   if (!show) {
@@ -27,8 +31,17 @@ const Modal = ({ show, onClose, children }) => {
   };
 
   return (
-    <div className="modal" role="dialog" aria-modal="true" onClick={handleBackdropClick}>
-      <div className="modal-content" onClick={(event) => event.stopPropagation()}>
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      onClick={handleBackdropClick}
+    >
+      <div
+        className="modal-container"
+        style={{ maxWidth }}
+        onClick={(event) => event.stopPropagation()}
+      >
         {children}
       </div>
     </div>

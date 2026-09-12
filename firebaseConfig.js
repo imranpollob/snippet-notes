@@ -11,14 +11,9 @@ const missingKeys = Object.entries(firebaseConfig)
   .filter(([, value]) => !value)
   .map(([key]) => key);
 
-if (missingKeys.length) {
-  throw new Error(
-    `Missing Firebase environment variables: ${missingKeys.join(", ")}. ` +
-      "Create a .env.local file (or configure project environment variables) before running the app."
-  );
-}
+export const isFirebaseConfigured = missingKeys.length === 0;
 
-if (process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID) {
+if (isFirebaseConfigured && process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID) {
   firebaseConfig.measurementId = process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID;
 }
 

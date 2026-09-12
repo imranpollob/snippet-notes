@@ -1,12 +1,24 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import GoogleAuthButton from "./GoogleAuthButton";
 import SnippetForm from "./SnippetForm";
 import SnippetsComponent from "./SnippetsComponent";
 import Modal from "./Modal";
-import { auth, db, onAuthStateChanged } from "../../../firebase";
-
+import ThemeToggle from "./ThemeToggle";
+import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
+import ExportImportModal from "./ExportImportModal";
+import { RichContent } from "../../lib/syntaxHighlight";
+import {
+  getLocalSnippets,
+  addLocalSnippet,
+  updateLocalSnippet,
+  deleteLocalSnippet,
+  togglePinLocalSnippet,
+  exportSnippetAsMarkdown,
+} from "../../lib/storage";
+import { auth, db, isFirebaseConfigured, onAuthStateChanged } from "../../../firebase";
 import {
   collection,
   getDocs,
@@ -18,7 +30,7 @@ import {
   where,
 } from "firebase/firestore";
 
-const AUTOSAVE_DELAY = 1000;
+const AUTOSAVE_DELAY = 800;
 
 const SnippetContainer = () => {
   const [snippets, setSnippets] = useState([]);
@@ -27,32 +39,113 @@ const SnippetContainer = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentSnippet, setCurrentSnippet] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTag, setSelectedTag] = useState("all");
+  const [selectedLanguage, setSelectedLanguage] = useState("all");
+  const [viewMode, setViewMode] = useState("grid"); // "grid" | "list"
   const [user, setUser] = useState(null);
   const [autosaveStatus, setAutosaveStatus] = useState("ready");
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [modalTab, setModalTab] = useState("write"); // "write" | "split" | "preview"
 
+  const searchInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const autosaveFeedbackTimerRef = useRef(null);
 
+  // Initialize data on mount
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (authUser) => {
-      if (authUser) {
-        setUser(authUser);
-        fetchSnippets(authUser.uid);
-      } else {
-        setUser(null);
-        setSnippets([]);
-        setIsModalOpen(false);
-        setCurrentSnippet(null);
-        setSearchQuery("");
-        setAutosaveStatus("ready");
-      }
-    });
+    // 1. Load local snippets
+    const initialLocal = getLocalSnippets();
+    setSnippets(initialLocal);
 
-    return () => unsubscribe();
+    // 2. Load stored view mode
+    const storedView = localStorage.getItem("ip_view_mode");
+    if (storedView === "list" || storedView === "grid") {
+      setViewMode(storedView);
+    }
+
+    // 3. If Firebase is configured, check auth state
+    if (isFirebaseConfigured && auth) {
+      const unsubscribe = onAuthStateChanged(auth, (authUser) => {
+        if (authUser) {
+          setUser(authUser);
+          fetchFirebaseSnippets(authUser.uid);
+        } else {
+          setUser(null);
+          setSnippets(getLocalSnippets());
+        }
+      });
+      return () => unsubscribe();
+    }
   }, []);
 
-  const fetchSnippets = async (uid) => {
+  const handleToggleViewMode = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem("ip_view_mode", mode);
+  };
+
+  // Global keyboard shortcuts (conflict-free with browser defaults)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isInputActive =
+        ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) ||
+        document.activeElement?.isContentEditable;
+
+      // 1. Search: ⌘K or Ctrl+K or '/' (when outside inputs)
+      if (
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") ||
+        (e.key === "/" && !isInputActive)
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      // 2. Create new snippet: 'C' (when outside inputs) or ⌥N / Alt+N
+      // Avoids browser conflict with ⌘N / Ctrl+N (which opens a new browser window)
+      if (
+        (e.altKey && e.key.toLowerCase() === "n") ||
+        (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "c" && !isInputActive)
+      ) {
+        e.preventDefault();
+        setIsComposerOpen((prev) => {
+          const next = !prev;
+          if (next) {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+          return next;
+        });
+        return;
+      }
+
+      // 3. '?' when outside inputs to view shortcuts reference
+      if (e.key === "?" && !isInputActive) {
+        e.preventDefault();
+        setIsShortcutsOpen(true);
+        return;
+      }
+
+      // 4. Esc closes composer or clears search
+      if (e.key === "Escape") {
+        if (searchQuery) {
+          e.preventDefault();
+          setSearchQuery("");
+        } else if (isComposerOpen) {
+          e.preventDefault();
+          setIsComposerOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchQuery, isComposerOpen]);
+
+  const fetchFirebaseSnippets = async (uid) => {
+    if (!db) return;
     setIsLoading(true);
     try {
       const snippetsCol = collection(db, "snippets");
@@ -62,32 +155,28 @@ const SnippetContainer = () => {
         id: snapshotDoc.id,
         ...snapshotDoc.data(),
       }));
-      setSnippets(snippetsList);
+      setSnippets(snippetsList.length > 0 ? snippetsList : getLocalSnippets());
     } catch (error) {
-      console.error("Error fetching snippets:", error);
+      console.error("Error fetching Firebase snippets:", error);
+      setSnippets(getLocalSnippets());
     } finally {
       setIsLoading(false);
     }
   };
 
-  const addSnippet = async (newSnippet) => {
-    if (!user) {
-      return;
-    }
-
-    const title = newSnippet.title?.trim();
-    const data = newSnippet.data?.trim();
-
-    if (!title && !data) {
-      return;
-    }
-
+  const handleAddSnippet = async (newSnippet) => {
     setIsSaving(true);
     try {
-      const snippetWithUid = { ...newSnippet, title, data, uid: user.uid };
-      const docRef = await addDoc(collection(db, "snippets"), snippetWithUid);
-      const newSnippetWithId = { id: docRef.id, ...snippetWithUid };
-      setSnippets((previous) => [newSnippetWithId, ...previous]);
+      if (user && db && isFirebaseConfigured) {
+        const snippetWithUid = { ...newSnippet, uid: user.uid, createdAt: Date.now() };
+        const docRef = await addDoc(collection(db, "snippets"), snippetWithUid);
+        const created = { id: docRef.id, ...snippetWithUid };
+        setSnippets((prev) => [created, ...prev]);
+      } else {
+        const created = addLocalSnippet(newSnippet);
+        setSnippets((prev) => [created, ...prev]);
+      }
+      setIsComposerOpen(false);
     } catch (error) {
       console.error("Error adding new snippet:", error);
     } finally {
@@ -95,72 +184,8 @@ const SnippetContainer = () => {
     }
   };
 
-  const updateSnippet = async (snippetId, updatedData) => {
-    const snippetRef = doc(db, "snippets", snippetId);
-    try {
-      await updateDoc(snippetRef, updatedData);
-      setSnippets((previous) =>
-        previous.map((snippet) =>
-          snippet.id === snippetId ? { ...snippet, ...updatedData } : snippet
-        )
-      );
-      return true;
-    } catch (error) {
-      console.error("Error updating snippet:", error);
-      return false;
-    }
-  };
-
-  const openModal = (snippet) => {
-    setCurrentSnippet(snippet);
-    setIsModalOpen(true);
-    setAutosaveStatus("ready");
-    setIsDeleteConfirming(false);
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setCurrentSnippet(null);
-    setAutosaveStatus("ready");
-    setIsDeleteConfirming(false);
-
-    if (autosaveFeedbackTimerRef.current) {
-      clearTimeout(autosaveFeedbackTimerRef.current);
-      autosaveFeedbackTimerRef.current = null;
-    }
-  };
-
-  const deleteSnippet = async (snippetId) => {
-    const snippetRef = doc(db, "snippets", snippetId);
-    try {
-      await deleteDoc(snippetRef);
-      setSnippets((previous) =>
-        previous.filter((snippet) => snippet.id !== snippetId)
-      );
-      closeModal();
-    } catch (error) {
-      console.error("Error deleting snippet:", error);
-    } finally {
-      setIsDeleteConfirming(false);
-    }
-  };
-
   const handleUpdateSnippet = (snippetId, updates) => {
-    setCurrentSnippet((previous) =>
-      previous ? { ...previous, ...updates } : { id: snippetId, ...updates }
-    );
-
-    const payload = {};
-    if (Object.prototype.hasOwnProperty.call(updates, "title")) {
-      payload.title = updates.title;
-    }
-    if (Object.prototype.hasOwnProperty.call(updates, "data")) {
-      payload.data = updates.data;
-    }
-
-    if (!Object.keys(payload).length) {
-      return;
-    }
+    setCurrentSnippet((prev) => (prev ? { ...prev, ...updates } : { id: snippetId, ...updates }));
 
     setAutosaveStatus("pending");
 
@@ -175,284 +200,601 @@ const SnippetContainer = () => {
 
     typingTimeoutRef.current = setTimeout(async () => {
       setAutosaveStatus("saving");
-      const success = await updateSnippet(snippetId, payload);
+
+      let success = false;
+      try {
+        if (user && db && isFirebaseConfigured) {
+          const snippetRef = doc(db, "snippets", snippetId);
+          await updateDoc(snippetRef, updates);
+          setSnippets((prev) =>
+            prev.map((s) => (s.id === snippetId ? { ...s, ...updates } : s))
+          );
+          success = true;
+        } else {
+          const updated = updateLocalSnippet(snippetId, updates);
+          setSnippets((prev) =>
+            prev.map((s) => (s.id === snippetId ? updated : s))
+          );
+          success = true;
+        }
+      } catch (err) {
+        console.error("Error updating snippet:", err);
+        success = false;
+      }
 
       if (success) {
         setAutosaveStatus("saved");
-        if (autosaveFeedbackTimerRef.current) {
-          clearTimeout(autosaveFeedbackTimerRef.current);
-        }
         autosaveFeedbackTimerRef.current = setTimeout(() => {
           setAutosaveStatus("ready");
           autosaveFeedbackTimerRef.current = null;
-        }, 2500);
+        }, 2200);
       } else {
         setAutosaveStatus("error");
       }
     }, AUTOSAVE_DELAY);
   };
 
-  useEffect(() => {
-    return () => {
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
+  const handleDeleteSnippet = async (snippetId) => {
+    try {
+      if (user && db && isFirebaseConfigured) {
+        const snippetRef = doc(db, "snippets", snippetId);
+        await deleteDoc(snippetRef);
+        setSnippets((prev) => prev.filter((s) => s.id !== snippetId));
+      } else {
+        const updated = deleteLocalSnippet(snippetId);
+        setSnippets(updated);
       }
-      if (autosaveFeedbackTimerRef.current) {
-        clearTimeout(autosaveFeedbackTimerRef.current);
-      }
-    };
-  }, []);
-
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-
-  const filteredSnippets = useMemo(() => {
-    if (!normalizedQuery) {
-      return snippets;
+      closeModal();
+    } catch (error) {
+      console.error("Error deleting snippet:", error);
+    } finally {
+      setIsDeleteConfirming(false);
     }
+  };
 
-    return snippets.filter((snippet) => {
-      const title = (snippet.title || "").toLowerCase();
-      const data = (snippet.data || "").toLowerCase();
-      return title.includes(normalizedQuery) || data.includes(normalizedQuery);
+  const handleTogglePin = (snippetId) => {
+    if (user && db && isFirebaseConfigured) {
+      const target = snippets.find((s) => s.id === snippetId);
+      if (target) {
+        handleUpdateSnippet(snippetId, { pinned: !target.pinned });
+      }
+    } else {
+      const updated = togglePinLocalSnippet(snippetId);
+      setSnippets(updated);
+    }
+  };
+
+  const openModal = (snippet) => {
+    setCurrentSnippet(snippet);
+    setIsModalOpen(true);
+    setAutosaveStatus("ready");
+    setIsDeleteConfirming(false);
+    setModalTab("write");
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setCurrentSnippet(null);
+    setAutosaveStatus("ready");
+    setIsDeleteConfirming(false);
+    if (autosaveFeedbackTimerRef.current) {
+      clearTimeout(autosaveFeedbackTimerRef.current);
+    }
+  };
+
+  // Language count map for fast 1-click filter badges
+  const languageCounts = useMemo(() => {
+    const counts = {};
+    snippets.forEach((s) => {
+      const lang = (s.language || "text").toLowerCase();
+      counts[lang] = (counts[lang] || 0) + 1;
     });
-  }, [snippets, normalizedQuery]);
+    return counts;
+  }, [snippets]);
+
+  // Unique tags list
+  const allTags = useMemo(() => {
+    const tagSet = new Set();
+    snippets.forEach((s) => {
+      if (Array.isArray(s.tags)) {
+        s.tags.forEach((t) => tagSet.add(t));
+      }
+    });
+    return Array.from(tagSet).sort();
+  }, [snippets]);
+
+  // Filtering & Sorting (pinned first)
+  const filteredSnippets = useMemo(() => {
+    const queryNorm = searchQuery.trim().toLowerCase();
+
+    return snippets
+      .filter((s) => {
+        // Tag filter
+        if (selectedTag !== "all") {
+          if (!s.tags || !s.tags.includes(selectedTag)) return false;
+        }
+
+        // Language filter
+        if (selectedLanguage !== "all") {
+          if ((s.language || "").toLowerCase() !== selectedLanguage.toLowerCase()) return false;
+        }
+
+        // Search query filter
+        if (!queryNorm) return true;
+
+        const title = (s.title || "").toLowerCase();
+        const data = (s.data || "").toLowerCase();
+        const tagsStr = (s.tags || []).join(" ").toLowerCase();
+        const lang = (s.language || "").toLowerCase();
+
+        return (
+          title.includes(queryNorm) ||
+          data.includes(queryNorm) ||
+          tagsStr.includes(queryNorm) ||
+          lang.includes(queryNorm)
+        );
+      })
+      .sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+      });
+  }, [snippets, searchQuery, selectedTag, selectedLanguage]);
 
   const totalSnippets = snippets.length;
   const visibleSnippets = filteredSnippets.length;
-  const hasSearch = Boolean(normalizedQuery);
-  const showEmptyState = !isLoading && !isSaving && !totalSnippets;
-  const showNoResultsState =
-    !isLoading && !isSaving && totalSnippets && !visibleSnippets;
-  const statusMessage = isLoading
-    ? "Syncing your snippets..."
-    : isSaving
-    ? "Saving your snippet..."
-    : null;
-  const autosaveFeedbackMap = {
-    ready: "Ready to edit",
-    pending: "Changes pending...",
-    saving: "Saving changes...",
-    saved: "All changes saved",
-    error: "Auto-save failed. Please try again.",
-  };
-
-  const autosaveFeedback =
-    autosaveFeedbackMap[autosaveStatus] ?? autosaveFeedbackMap.ready;
 
   return (
     <div className="page-shell">
-      {!user ? (
-        <header className="hero-card">
-          <div className="hero-head">
-            <div className="brand">
-              <div className="brand-mark">&lt;/&gt;</div>
-              <div className="brand-copy">
-                <span className="hero-eyebrow">Snippet Studio</span>
-                <span className="brand-title">Save Everything</span>
-              </div>
-            </div>
-            <GoogleAuthButton />
+      {/* Brand Header */}
+      <header className="workspace-brand-header">
+        <div className="brand-lockup">
+          <div className="brand-logo-frame">
+            <Image
+              src="/logo.png"
+              alt="Snippets Logo"
+              width={42}
+              height={42}
+              priority
+              className="brand-logo-img"
+            />
           </div>
-
-          <div className="hero-copy">
-            <p className="hero-description">
-              Store your favorite code, configuration, and workflow snippets in a beautifully organized space that is always within reach.
-            </p>
+          <div className="brand-meta">
+            <span className="brand-title">Snippets</span>
           </div>
+        </div>
 
-          <div className="hero-actions">
-            <ul className="hero-highlights">
-              <li>Save code, shell commands, and reusable notes</li>
-              <li>Search instantly across your private library</li>
-              <li>Edit safely with autosave and version-friendly updates</li>
-            </ul>
-          </div>
-        </header>
-      ) : (
-        <section className="workspace-header" aria-label="Snippet workspace controls">
-          <div className="workspace-header-top">
-            <div className="workspace-title">
-              <h1>Snippet Workspace</h1>
-              <p>Keep frequently used fragments organized and searchable.</p>
-            </div>
-            <GoogleAuthButton />
-          </div>
-        </section>
-      )}
+        {/* Global Controls */}
+        <div className="workspace-actions">
+          <ThemeToggle />
 
-      {user ? (
-        <>
-          <SnippetForm addSnippet={addSnippet} isSaving={isSaving} />
+          <button
+            type="button"
+            className="action-icon-pill"
+            title="Keyboard shortcuts (?)"
+            onClick={() => setIsShortcutsOpen(true)}
+            aria-label="View keyboard shortcuts"
+          >
+            <kbd className="action-kbd">?</kbd>
+            <span className="action-pill-text">Shortcuts</span>
+          </button>
 
-          <section className="search-panel" aria-label="Search your snippets">
-            <label className="search-shell" htmlFor="snippet-search">
-              <svg
-                className="search-icon"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
+          <button
+            type="button"
+            className="action-icon-pill"
+            title="Backup & Restore Library"
+            onClick={() => setIsBackupOpen(true)}
+            aria-label="Backup or restore snippets"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span className="action-pill-text">Backup</span>
+          </button>
+
+          <GoogleAuthButton user={user} />
+        </div>
+      </header>
+
+      {/* Primary Interaction Hub: Search & Quick-Capture */}
+      <section className="search-hub-section" aria-label="Search and create snippets">
+        <div className="search-hub-bar">
+          {/* Omni-Search Input */}
+          <div className="omni-search-shell">
+            <svg
+              className="search-hub-icon"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M15.5 14h-.79l-.28-.27a6.47 6.47 0 0 0 1.57-4.23A6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Z"
+                fill="currentColor"
+              />
+            </svg>
+            <input
+              ref={searchInputRef}
+              id="omni-search-input"
+              type="search"
+              placeholder="Search by title, tag, or code (Press ⌘K or /)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoComplete="off"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="search-hub-clear"
+                onClick={() => setSearchQuery("")}
+                aria-label="Clear search query"
               >
-                <path
-                  d="M15.5 14h-.79l-.28-.27a6.47 6.47 0 0 0 1.57-4.23A6.5 6.5 0 1 0 9.5 16a6.47 6.47 0 0 0 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Z"
-                  fill="currentColor"
-                />
+                ×
+              </button>
+            )}
+            <kbd className="search-hub-kbd">⌘K</kbd>
+          </div>
+
+          {/* "+ New Snippet" Quick-Capture Trigger */}
+          <button
+            type="button"
+            className={`quick-capture-toggle-btn ${isComposerOpen ? "active" : ""}`}
+            onClick={() => setIsComposerOpen(!isComposerOpen)}
+            title="Create new snippet (Press C or ⌥N)"
+          >
+            <span className="capture-btn-icon">{isComposerOpen ? "✕" : "+"}</span>
+            <span className="capture-btn-text">{isComposerOpen ? "Close" : "New Snippet"}</span>
+            <kbd className="capture-btn-kbd">C</kbd>
+          </button>
+        </div>
+
+        {/* Dynamic Language Filter Badges (1-Click Filtering) */}
+        <div className="quick-filter-strip">
+          <div className="filter-badges-scroll">
+            <button
+              type="button"
+              className={`quick-filter-pill ${selectedLanguage === "all" ? "selected" : ""}`}
+              onClick={() => setSelectedLanguage("all")}
+            >
+              <span>All</span>
+              <span className="filter-count-badge">{totalSnippets}</span>
+            </button>
+
+            {Object.entries(languageCounts).map(([lang, count]) => (
+              <button
+                key={lang}
+                type="button"
+                className={`quick-filter-pill ${selectedLanguage === lang ? "selected" : ""}`}
+                onClick={() => setSelectedLanguage(lang)}
+              >
+                <span>{lang}</span>
+                <span className="filter-count-badge">{count}</span>
+              </button>
+            ))}
+
+            {/* Tags separator */}
+            {allTags.length > 0 && (
+              <>
+                <span className="filter-strip-divider" />
+                {allTags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={`quick-tag-pill ${selectedTag === tag ? "selected" : ""}`}
+                    onClick={() => setSelectedTag(selectedTag === tag ? "all" : tag)}
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+
+          {/* View mode toggle (Grid vs List) */}
+          <div className="view-mode-toggle" role="radiogroup" aria-label="View mode">
+            <button
+              type="button"
+              className={`view-mode-btn ${viewMode === "grid" ? "active" : ""}`}
+              onClick={() => handleToggleViewMode("grid")}
+              title="Grid View"
+              aria-label="Grid view"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
               </svg>
-              <input
-                id="snippet-search"
-                type="search"
-                placeholder="Search snippets by title or content"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                autoComplete="off"
-              />
-            </label>
+            </button>
+            <button
+              type="button"
+              className={`view-mode-btn ${viewMode === "list" ? "active" : ""}`}
+              onClick={() => handleToggleViewMode("list")}
+              title="Compact List View"
+              aria-label="List view"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
 
-            <div className="search-meta" aria-live="polite">
-              <span className="metric-pill">
-                <strong>{totalSnippets}</strong> total
-              </span>
-              <span className="metric-pill">
-                <strong>{visibleSnippets}</strong> showing
-              </span>
-              {hasSearch ? (
-                <span className="metric-pill">Filter: {searchQuery}</span>
-              ) : null}
-            </div>
-          </section>
-
-          <section className="cards-section" aria-live="polite">
-            <div className="cards-header">
-              <h2 className="cards-title">Library</h2>
-              <span className="cards-count">
-                {visibleSnippets} {visibleSnippets === 1 ? "snippet" : "snippets"}
-                {hasSearch ? " match" : " saved"}
-              </span>
-            </div>
-
-            {statusMessage ? (
-              <div className="loading-state">
-                <div className="loading-ring" aria-hidden="true" />
-                <p>{statusMessage}</p>
-              </div>
-            ) : null}
-
-            {!isLoading && showEmptyState ? (
-              <div className="empty-state">
-                <span className="empty-eyebrow">No snippets yet</span>
-                <h3 className="empty-title">Let's capture your first idea</h3>
-                <p className="empty-description">
-                  Save frequently used commands, git aliases, or that clever
-                  utility function you always copy from an old project.
-                </p>
-              </div>
-            ) : null}
-
-            {!isLoading && !showEmptyState && showNoResultsState ? (
-              <div className="empty-state">
-                <span className="empty-eyebrow">No matches</span>
-                <h3 className="empty-title">Nothing fits that search</h3>
-                <p className="empty-description">
-                  Try a different keyword or clear the filter to see everything in
-                  your library.
-                </p>
-              </div>
-            ) : null}
-
-            {!isLoading && !showEmptyState && !showNoResultsState ? (
-              <SnippetsComponent
-                snippets={filteredSnippets}
-                onCardClick={openModal}
-                searchQuery={searchQuery}
-              />
-            ) : null}
-          </section>
-        </>
-      ) : (
-        <section className="guest-card" aria-live="polite">
-          <span className="guest-eyebrow">Welcome</span>
-          <h2 className="guest-title">Sign in to unlock your snippets</h2>
-          <p className="guest-description">
-            Connect your Google account using the control above to start saving,
-            searching, and editing your personal snippet library.
-          </p>
-        </section>
+      {/* Quick Capture Dock (Opened via ⌘N or "+ New Snippet") */}
+      {isComposerOpen && (
+        <SnippetForm
+          addSnippet={handleAddSnippet}
+          isSaving={isSaving}
+          onCancel={() => setIsComposerOpen(false)}
+        />
       )}
 
-      <Modal show={isModalOpen} onClose={closeModal}>
-        {currentSnippet ? (
+      {/* Snippet Library Grid / List */}
+      <section className="library-section" aria-live="polite">
+        <div className="library-section-header">
+          <div className="library-title-group">
+            <h2 className="library-title">Library</h2>
+            <span className="library-count-pill">
+              {visibleSnippets} of {totalSnippets} snippets
+            </span>
+          </div>
+
+          {(selectedLanguage !== "all" || selectedTag !== "all" || searchQuery) && (
+            <button
+              type="button"
+              className="reset-filters-btn"
+              onClick={() => {
+                setSelectedLanguage("all");
+                setSelectedTag("all");
+                setSearchQuery("");
+              }}
+            >
+              Reset Filters ×
+            </button>
+          )}
+        </div>
+
+        {isLoading && (
+          <div className="loading-state">
+            <div className="loading-ring" aria-hidden="true" />
+            <p>Loading snippets...</p>
+          </div>
+        )}
+
+        {!isLoading && totalSnippets === 0 && (
+          <div className="empty-state">
+            <span className="empty-eyebrow">Workspace</span>
+            <h3 className="empty-title">Capture your first code fragment</h3>
+            <button
+              type="button"
+              className="primary-action"
+              onClick={() => setIsComposerOpen(true)}
+            >
+              + Create Snippet (C)
+            </button>
+          </div>
+        )}
+
+        {!isLoading && totalSnippets > 0 && visibleSnippets === 0 && (
+          <div className="empty-state">
+            <span className="empty-eyebrow">No Matches</span>
+            <h3 className="empty-title">No snippets match that search</h3>
+            <p className="empty-description">
+              Try a different keyword or reset your active filters.
+            </p>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => {
+                setSelectedLanguage("all");
+                setSelectedTag("all");
+                setSearchQuery("");
+              }}
+            >
+              Clear Search & Filters
+            </button>
+          </div>
+        )}
+
+        {!isLoading && visibleSnippets > 0 && (
+          <SnippetsComponent
+            snippets={filteredSnippets}
+            onCardClick={openModal}
+            searchQuery={searchQuery}
+            onTogglePin={handleTogglePin}
+            viewMode={viewMode}
+          />
+        )}
+      </section>
+
+      {/* Focused Editor Modal */}
+      <Modal show={isModalOpen} onClose={closeModal} maxWidth="960px">
+        {currentSnippet && (
           <div className="modal-editor">
-            <div className="modal-editor-fields">
-              <input
-                className="modal-editor-title"
-                type="text"
-                value={currentSnippet.title || ""}
-                onChange={(event) =>
-                  handleUpdateSnippet(currentSnippet.id, {
-                    ...currentSnippet,
-                    title: event.target.value,
-                  })
-                }
-              />
-              <textarea
-                className="modal-editor-body"
-                value={currentSnippet.data || ""}
-                onChange={(event) =>
-                  handleUpdateSnippet(currentSnippet.id, {
-                    ...currentSnippet,
-                    data: event.target.value,
-                  })
-                }
-              />
+            {/* Modal Top */}
+            <div className="modal-top-row">
+              <div className="modal-title-box">
+                <input
+                  className="modal-editor-title"
+                  type="text"
+                  placeholder="Snippet title..."
+                  value={currentSnippet.title || ""}
+                  onChange={(e) =>
+                    handleUpdateSnippet(currentSnippet.id, {
+                      ...currentSnippet,
+                      title: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              {/* View Tabs */}
+              <div className="modal-tabs">
+                <button
+                  type="button"
+                  className={`tab-btn ${modalTab === "write" ? "active" : ""}`}
+                  onClick={() => setModalTab("write")}
+                >
+                  Write
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${modalTab === "split" ? "active" : ""}`}
+                  onClick={() => setModalTab("split")}
+                >
+                  Split
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${modalTab === "preview" ? "active" : ""}`}
+                  onClick={() => setModalTab("preview")}
+                >
+                  Preview
+                </button>
+                <button
+                  type="button"
+                  className="icon-close-btn modal-close-x"
+                  onClick={closeModal}
+                  aria-label="Close modal"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
+
+            {/* Modal Tags */}
+            <div className="modal-tags-row">
+              <span className="lang-badge">
+                {(currentSnippet.language || "text").toUpperCase()}
+              </span>
+              {currentSnippet.tags && currentSnippet.tags.length > 0 && (
+                <div className="tags-active-list">
+                  {currentSnippet.tags.map((tag) => (
+                    <span key={tag} className="tag-chip active">
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Fields */}
+            <div className={`modal-editor-fields layout-${modalTab}`}>
+              {modalTab !== "preview" && (
+                <textarea
+                  className="modal-editor-body"
+                  value={currentSnippet.data || ""}
+                  placeholder="Write markdown or code snippets with ```language ... ```"
+                  onChange={(e) =>
+                    handleUpdateSnippet(currentSnippet.id, {
+                      ...currentSnippet,
+                      data: e.target.value,
+                    })
+                  }
+                />
+              )}
+
+              {modalTab !== "write" && (
+                <div className="modal-preview-body">
+                  <RichContent content={currentSnippet.data || ""} isPreview={true} />
+                </div>
+              )}
+            </div>
+
+            {/* Autosave feedback */}
             <div
               className="modal-editor-status"
               role="status"
               aria-live="polite"
               data-state={autosaveStatus}
             >
-              {autosaveFeedback}
+              {autosaveStatus === "saving" && "Saving changes..."}
+              {autosaveStatus === "saved" && "✓ All changes saved"}
+              {autosaveStatus === "pending" && "Changes pending..."}
+              {autosaveStatus === "error" && "Failed to autosave."}
+              {autosaveStatus === "ready" && "Ready to edit"}
             </div>
+
+            {/* Modal Actions */}
             <div className="modal-editor-actions">
-              <div className="modal-editor-delete">
+              <div className="modal-left-actions">
+                <button
+                  type="button"
+                  className="ghost-button action-btn-icon"
+                  onClick={() => exportSnippetAsMarkdown(currentSnippet)}
+                  title="Download snippet as Markdown file"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  <span>Export .md</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`ghost-button action-btn-icon ${currentSnippet.pinned ? "active" : ""}`}
+                  onClick={() => handleTogglePin(currentSnippet.id)}
+                >
+                  <span>{currentSnippet.pinned ? "★ Pinned" : "☆ Pin snippet"}</span>
+                </button>
+              </div>
+
+              <div className="modal-right-actions">
                 {isDeleteConfirming ? (
-                  <>
-                    <p className="modal-editor-delete-message">
-                      Delete this snippet permanently?
-                    </p>
-                    <div className="modal-editor-delete-controls">
-                      <button
-                        className="ghost-button"
-                        type="button"
-                        onClick={() => setIsDeleteConfirming(false)}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        className="danger-button"
-                        type="button"
-                        onClick={() => deleteSnippet(currentSnippet.id)}
-                      >
-                        Confirm delete
-                      </button>
-                    </div>
-                  </>
+                  <div className="delete-confirm-group">
+                    <span className="delete-confirm-text">Delete permanently?</span>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => handleDeleteSnippet(currentSnippet.id)}
+                    >
+                      Yes, delete
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => setIsDeleteConfirming(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 ) : (
                   <button
-                    className="danger-button"
                     type="button"
+                    className="danger-button"
                     onClick={() => setIsDeleteConfirming(true)}
                   >
-                    Delete snippet
+                    Delete
                   </button>
                 )}
+                <button type="button" className="primary-action" onClick={closeModal}>
+                  Done
+                </button>
               </div>
-              <button className="ghost-button" type="button" onClick={closeModal}>
-                Close
-              </button>
             </div>
           </div>
-        ) : null}
+        )}
       </Modal>
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsOpen}
+        onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      {/* Backup & Restore Modal */}
+      <ExportImportModal
+        isOpen={isBackupOpen}
+        onClose={() => setIsBackupOpen(false)}
+        totalSnippets={totalSnippets}
+        onImportSuccess={(newSnippets) => setSnippets(newSnippets)}
+      />
     </div>
   );
 };

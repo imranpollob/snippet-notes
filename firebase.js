@@ -1,4 +1,4 @@
-// Import the functions you need from the SDKs you need
+// Firebase configuration with safe standalone local-first fallback
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -7,22 +7,40 @@ import {
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore"; // If you're using Firestore
-import firebaseConfig from "./firebaseConfig";
+import { getFirestore } from "firebase/firestore";
+import firebaseConfig, { isFirebaseConfigured } from "./firebaseConfig";
 
-// Initialize Firebase only once in the client
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+let app = null;
+let auth = null;
+let db = null;
 
-// Initialize Firebase services
-const auth = getAuth(app);
-const db = getFirestore(app);
+if (isFirebaseConfigured) {
+  try {
+    app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  } catch (error) {
+    console.warn("Failed to initialize Firebase:", error);
+  }
+}
 
-// Export the necessary functionalities
+// Safe wrapper for onAuthStateChanged
+const safeOnAuthStateChanged = (authInstance, callback) => {
+  if (!authInstance) {
+    if (typeof callback === "function") {
+      callback(null);
+    }
+    return () => {};
+  }
+  return onAuthStateChanged(authInstance, callback);
+};
+
 export {
   auth,
   db,
+  isFirebaseConfigured,
   signInWithPopup,
   GoogleAuthProvider,
   signOut,
-  onAuthStateChanged,
+  safeOnAuthStateChanged as onAuthStateChanged,
 };
