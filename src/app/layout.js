@@ -55,7 +55,7 @@ export const metadata = {
     description: siteConfig.description,
     images: [
       {
-        url: "/logo.png",
+        url: `${siteConfig.url}/logo.png`,
         width: 1024,
         height: 931,
         alt: `${siteConfig.name} Logo`,
@@ -66,15 +66,15 @@ export const metadata = {
     card: "summary_large_image",
     title: siteConfig.title,
     description: siteConfig.description,
-    images: ["/logo.png"],
+    images: [`${siteConfig.url}/logo.png`],
     creator: "@imranpollob",
   },
   icons: {
-    icon: "/logo.png",
-    shortcut: "/logo.png",
-    apple: "/logo.png",
+    icon: `${siteConfig.url}/logo.png`,
+    shortcut: `${siteConfig.url}/logo.png`,
+    apple: `${siteConfig.url}/logo.png`,
   },
-  manifest: "/manifest.webmanifest",
+  manifest: `${siteConfig.basePath || ""}/manifest.webmanifest`,
 };
 
 export const viewport = {

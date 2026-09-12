@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import logoPic from "../../../public/logo.png";
 import GoogleAuthButton from "./GoogleAuthButton";
 import SnippetForm from "./SnippetForm";
 import SnippetsComponent from "./SnippetsComponent";
@@ -351,7 +352,7 @@ const SnippetContainer = () => {
         <div className="brand-lockup">
           <div className="brand-logo-frame">
             <Image
-              src="/logo.png"
+              src={logoPic}
               alt="Snippets Logo"
               width={42}
               height={42}

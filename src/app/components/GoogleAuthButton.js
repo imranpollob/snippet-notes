@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import Image from "next/image";
+import logoPic from "../../../public/logo.png";
 import Modal from "./Modal";
 import {
   auth,
@@ -107,7 +108,12 @@ export default function GoogleAuthButton({ user: propUser }) {
       setIsLoginModalOpen(false);
     } catch (error) {
       console.error("Google Sign-In Error:", error);
-      if (error.code !== "auth/popup-closed-by-user") {
+      if (error.code === "auth/unauthorized-domain") {
+        const domain = typeof window !== "undefined" ? window.location.hostname : "your domain";
+        setAuthError(
+          `Domain "${domain}" is not authorized for Firebase Authentication. Please add "${domain}" to your Firebase Console: Authentication → Settings → Authorized domains.`
+        );
+      } else if (error.code !== "auth/popup-closed-by-user") {
         setAuthError(error.message || "Failed to sign in. Please try again.");
       }
     } finally {
@@ -302,7 +308,7 @@ export default function GoogleAuthButton({ user: propUser }) {
             <div className="login-modal-brand-row">
               <div className="login-modal-logo-frame">
                 <Image
-                  src="/logo.png"
+                  src={logoPic}
                   alt="Snippets Logo"
                   width={38}
                   height={38}

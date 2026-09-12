@@ -1,6 +1,18 @@
 // SEO Configuration and Structured Data for Snippets
 // Optimized for search engines, rich social previews, and portfolio CV listing.
 
+const rawBasePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const basePath = rawBasePath.startsWith("/")
+  ? rawBasePath
+  : rawBasePath
+  ? `/${rawBasePath}`
+  : "";
+const defaultSiteUrl = basePath
+  ? `https://imranpollob.github.io${basePath}`
+  : "https://imranpollob.github.io/snippet-notes";
+
+const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || defaultSiteUrl).replace(/\/$/, "");
+
 export const siteConfig = {
   name: "Snippets",
   shortName: "Snippets",
@@ -9,6 +21,9 @@ export const siteConfig = {
     "A distraction-free code snippet manager and rich markdown workspace. Capture, highlight, and organize reusable code fragments with zero latency.",
   url: "https://snippet-notes.vercel.app", // standard canonical domain
   ogImage: "/logo.png",
+  basePath,
+  url: siteUrl,
+  ogImage: `${siteUrl}/logo.png`,
   author: {
     name: "Imran Pollob",
     url: "https://github.com/imranpollob",
