@@ -77,6 +77,19 @@ const SnippetContainer = () => {
     }, 3500);
   };
 
+  // Load the brand tools launcher ("waffle") only after hydration:
+  // launcher.js swaps the [data-brand-launcher] span for its button, which
+  // would break React hydration (and drop the button) if it ran before.
+  useEffect(() => {
+    const src =
+      "https://imranpollob.github.io/personal-brand-theme/launcher.js";
+    if (document.querySelector(`script[src="${src}"]`)) return;
+    const s = document.createElement("script");
+    s.src = src;
+    s.defer = true;
+    document.head.appendChild(s);
+  }, []);
+
   // Initialize data on mount
   useEffect(() => {
     // 1. Load local snippets
@@ -501,6 +514,7 @@ const SnippetContainer = () => {
           </button>
 
           <GoogleAuthButton user={user} />
+          <span data-brand-launcher></span>
         </div>
       </header>
 

@@ -138,6 +138,30 @@
   padding: 0.1rem 0.35rem;
 }
 
+/* Brand tools launcher ("waffle") — scoped override so the icon-only toggle
+   matches the header pills (same height, border, radius, colors, transition). */
+.workspace-actions .bl-toggle {
+  width: auto;
+  height: auto;
+  padding: 0.45rem;
+  border-radius: 999px;
+  color: var(--color-text);
+  transition: all 0.15s ease;
+}
+
+.workspace-actions .bl-toggle:hover,
+.workspace-actions .bl-toggle[aria-expanded="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.workspace-actions .bl-toggle svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
 /* Theme Toggle */
 .theme-toggle-btn {
   display: inline-flex;

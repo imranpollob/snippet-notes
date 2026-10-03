@@ -116,6 +116,14 @@ export default function RootLayout({ children }) {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        <link
+          rel="stylesheet"
+          href="https://imranpollob.github.io/personal-brand-theme/launcher.css"
+        />
+        {/* launcher.js loads from the same hosted URL but is injected into <head>
+            post-hydration by SnippetContainer: it swaps the mount span for its
+            button, which would break React hydration (and drop the button) if
+            it ran before hydration completed. */}
       </head>
       <body>{children}</body>
     </html>
