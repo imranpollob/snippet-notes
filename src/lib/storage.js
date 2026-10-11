@@ -5,6 +5,20 @@ const STORAGE_KEY = "ip_snippets_v1";
 
 export const STARTER_SNIPPETS = [];
 
+// Normalize a labels value into a deduped array of clean label names.
+export const normalizeLabels = (value) => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const labels = [];
+  value.forEach((raw) => {
+    const clean = String(raw ?? "").trim().replace(/^#+/, "");
+    if (!clean || seen.has(clean.toLowerCase())) return;
+    seen.add(clean.toLowerCase());
+    labels.push(clean);
+  });
+  return labels;
+};
+
 export const getLocalSnippets = () => {
   if (typeof window === "undefined") {
     return [];
@@ -19,8 +33,23 @@ export const getLocalSnippets = () => {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       // Purge any legacy starter snippets previously saved in browser localStorage
-      const userSnippets = parsed.filter((s) => !s.id?.startsWith("starter-"));
-      if (userSnippets.length !== parsed.length) {
+      let userSnippets = parsed.filter((s) => !s.id?.startsWith("starter-"));
+      // Drop the legacy tags field: labels replace tags entirely with no migration
+      let needsRewrite = userSnippets.length !== parsed.length;
+      userSnippets = userSnippets.map((snippet) => {
+        if (snippet && typeof snippet === "object" && "tags" in snippet) {
+          needsRewrite = true;
+          const rest = { ...snippet };
+          delete rest.tags;
+          return { ...rest, labels: normalizeLabels(rest.labels) };
+        }
+        if (snippet && typeof snippet === "object" && !Array.isArray(snippet.labels)) {
+          needsRewrite = true;
+          return { ...snippet, labels: [] };
+        }
+        return snippet;
+      });
+      if (needsRewrite) {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(userSnippets));
       }
       return userSnippets;
@@ -53,7 +82,7 @@ export const addLocalSnippet = (snippet) => {
     title: effectiveTitle,
     data: snippet.data || "",
     language: detectedLang,
-    tags: Array.isArray(snippet.tags) ? snippet.tags : [],
+    labels: normalizeLabels(snippet.labels),
     pinned: Boolean(snippet.pinned),
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -256,8 +285,14 @@ export const importSnippetsFromJSON = async (file) => {
         if (!Array.isArray(imported)) {
           throw new Error("Invalid backup format. Expected a JSON array of snippets.");
         }
-        // Normalize
-        const valid = imported.filter((item) => item && (item.title || item.data));
+        // Normalize (legacy tags are dropped: labels replace tags entirely)
+        const valid = imported
+          .filter((item) => item && (item.title || item.data))
+          .map((item) => {
+            const rest = { ...item };
+            delete rest.tags;
+            return { ...rest, labels: normalizeLabels(rest.labels) };
+          });
         setLocalSnippets(valid);
         resolve(valid);
       } catch (err) {
@@ -272,7 +307,7 @@ export const importSnippetsFromJSON = async (file) => {
 // Data Portability: Export single snippet to Markdown
 export const exportSnippetAsMarkdown = (snippet) => {
   const content = `# ${snippet.title || "Untitled snippet"}
-${snippet.tags && snippet.tags.length ? `\n**Tags:** ${snippet.tags.map((t) => `#${t}`).join(" ")}\n` : ""}
+${snippet.labels && snippet.labels.length ? `\n**Labels:** ${snippet.labels.map((t) => `#${t}`).join(" ")}\n` : ""}
 ${snippet.data || ""}
 `;
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });

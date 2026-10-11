@@ -13,8 +13,8 @@ A fast, distraction-free workspace to capture, search, and organize code snippet
 
 ## Highlights
 
-- **Quick Capture Dock**: Paste code directly. The editor auto-detects language across 10+ syntaxes, derives smart titles from comments or function signatures, and saves instantly.
-- **Fast Omni-Search**: Jump straight to search with `⌘K` or `/`. Filter in real-time across titles, code content, tags, and languages.
+- **One Snippet Editor**: Create and edit in the same focused modal. New snippets support automatic language detection and suggested titles; existing snippets save changes automatically. Search existing labels or create a label directly in the editor.
+- **Fast Omni-Search**: Jump straight to search with `⌘K` or `/`. Filter in real-time across titles, code content, labels, and languages.
 - **Dual View Modes**: Switch between rich cards with syntax highlighting and a high-density compact list for quick scanning.
 - **100% Private & Offline-Ready**: Everything saves to your browser's local storage. No tracking, no mandatory logins, and zero latency.
 - **Optional Cloud Sync**: Connect your Google account anytime to synchronize snippets across devices using Firebase Firestore.
@@ -32,7 +32,9 @@ Designed for keyboard-first developer workflows:
 | **New Snippet**           | `C` or `⌥ + N` | `C` or `Alt + N`       |
 | **Search**                | `⌘ + K` or `/` | `Ctrl + K` or `/`      |
 | **Save Snippet**          | `⌘ + Enter`    | `Ctrl + Enter`         |
-| **Close / Clear**         | `Esc`          | `Esc`                  |
+| **Done (Editor)**         | `⌘ + Enter`    | `Ctrl + Enter`         |
+| **Delete (Editor)**       | `⌘ + ⌫ ×2`     | `Ctrl + Backspace ×2`  |
+| **Cancel / Close / Clear** | `Esc`         | `Esc`                  |
 | **Shortcuts Cheat Sheet** | `?`            | `?`                    |
 
 ---
