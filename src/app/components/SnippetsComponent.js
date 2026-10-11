@@ -102,11 +102,11 @@ const SnippetsComponent = ({
                 </span>
               </div>
 
-              {/* Row Tags */}
-              <div className="row-tags-col">
-                {snippet.tags && snippet.tags.slice(0, 3).map((tag) => (
-                  <span key={tag} className="tag-pill">
-                    #{highlightMatch(tag, searchQuery)}
+              {/* Row Labels */}
+              <div className="row-labels-col">
+                {snippet.labels && snippet.labels.slice(0, 3).map((label) => (
+                  <span key={label} className="label-pill">
+                    #{highlightMatch(label, searchQuery)}
                   </span>
                 ))}
               </div>
@@ -135,8 +135,6 @@ const SnippetsComponent = ({
   return (
     <div className="cards-grid" role="list">
       {snippets.map((snippet) => {
-        const lineCount = (snippet.data || "").split("\n").length;
-        const displayLang = (snippet.language || "text").toUpperCase();
         const isCopied = copiedId === snippet.id;
 
         return (
@@ -153,10 +151,9 @@ const SnippetsComponent = ({
               }
             }}
           >
-            {/* Top row: Language badge, Pin toggle, and Actions */}
+            {/* Top row: Pin toggle and actions */}
             <div className="card-top-bar">
               <div className="card-badges">
-                <span className="lang-badge">{displayLang}</span>
                 {snippet.pinned && (
                   <span className="pin-indicator" title="Pinned snippet">
                     ★ Pinned
@@ -225,12 +222,12 @@ const SnippetsComponent = ({
               </h3>
             </header>
 
-            {/* Tags */}
-            {snippet.tags && snippet.tags.length > 0 && (
-              <div className="card-tags-list">
-                {snippet.tags.map((tag) => (
-                  <span key={tag} className="tag-pill">
-                    #{highlightMatch(tag, searchQuery)}
+            {/* Labels */}
+            {snippet.labels && snippet.labels.length > 0 && (
+              <div className="card-labels-list">
+                {snippet.labels.slice(0, 3).map((label) => (
+                  <span key={label} className="label-pill" title={label}>
+                    #{highlightMatch(label, searchQuery)}
                   </span>
                 ))}
               </div>
@@ -241,13 +238,6 @@ const SnippetsComponent = ({
               <RichContent content={snippet.data} isPreview={true} />
             </div>
 
-            {/* Card Footer */}
-            <footer className="snippet-card-footer">
-              <span className="card-meta-text">
-                {lineCount} {lineCount === 1 ? "line" : "lines"}
-              </span>
-              <span className="card-open-hint">Click to edit →</span>
-            </footer>
           </article>
         );
       })}

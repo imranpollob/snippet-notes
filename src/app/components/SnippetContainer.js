@@ -4,12 +4,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import logoPic from "../../../public/logo.png";
 import GoogleAuthButton from "./GoogleAuthButton";
-import SnippetForm from "./SnippetForm";
 import SnippetsComponent from "./SnippetsComponent";
+import SnippetLabelsEditor from "./SnippetLabelsEditor";
 import Modal from "./Modal";
 import ThemeToggle from "./ThemeToggle";
 import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 import ExportImportModal from "./ExportImportModal";
+import ManageLabelsModal from "./ManageLabelsModal";
 import SyncLocalModal from "./SyncLocalModal";
 import { RichContent } from "../../lib/syntaxHighlight";
 import {
@@ -20,6 +21,9 @@ import {
   deleteLocalSnippet,
   togglePinLocalSnippet,
   exportSnippetAsMarkdown,
+  normalizeLabels,
+  detectLanguage,
+  extractSmartTitle,
 } from "../../lib/storage";
 import { auth, db, isFirebaseConfigured, onAuthStateChanged } from "../../../firebase";
 import {
@@ -43,16 +47,18 @@ const SnippetContainer = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentSnippet, setCurrentSnippet] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTag, setSelectedTag] = useState("all");
-  const [selectedLanguage, setSelectedLanguage] = useState("all");
+  const [selectedLabel, setSelectedLabel] = useState("");
   const [viewMode, setViewMode] = useState("grid"); // "grid" | "list"
   const [user, setUser] = useState(null);
   const [autosaveStatus, setAutosaveStatus] = useState("ready");
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
-  const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [isCreatingSnippet, setIsCreatingSnippet] = useState(false);
+  const [createError, setCreateError] = useState("");
   const [modalTab, setModalTab] = useState("write"); // "write" | "split" | "preview"
+  const [isManageLabelsOpen, setIsManageLabelsOpen] = useState(false);
+  const [modalLabelInput, setModalLabelInput] = useState("");
 
   // Approach B: Sync Local Snippets Modal state
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
@@ -65,6 +71,9 @@ const SnippetContainer = () => {
   const autosaveFeedbackTimerRef = useRef(null);
   const prevAuthUserRef = useRef(undefined);
   const toastTimerRef = useRef(null);
+  const createRequestRef = useRef(false);
+  const pendingSaveRef = useRef(null);
+  const activeSnippetIdRef = useRef(null);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -76,6 +85,19 @@ const SnippetContainer = () => {
       toastTimerRef.current = null;
     }, 3500);
   };
+
+  // Load the brand tools launcher ("waffle") only after hydration:
+  // launcher.js swaps the [data-brand-launcher] span for its button, which
+  // would break React hydration (and drop the button) if it ran before.
+  useEffect(() => {
+    const src =
+      "https://imranpollob.github.io/personal-brand-theme/launcher.js";
+    if (document.querySelector(`script[src="${src}"]`)) return;
+    const s = document.createElement("script");
+    s.src = src;
+    s.defer = true;
+    document.head.appendChild(s);
+  }, []);
 
   // Initialize data on mount
   useEffect(() => {
@@ -127,12 +149,12 @@ const SnippetContainer = () => {
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Do not trigger global shortcuts when any modal or dialog is open
-      if (isSyncModalOpen || isModalOpen || isShortcutsOpen || isBackupOpen) {
+      if (isSyncModalOpen || isModalOpen || isShortcutsOpen || isBackupOpen || isManageLabelsOpen) {
         return;
       }
 
       const isInputActive =
-        ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName) ||
         document.activeElement?.isContentEditable;
 
       // 1. Search: ⌘K or Ctrl+K or '/' (when outside inputs)
@@ -153,13 +175,7 @@ const SnippetContainer = () => {
         (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "c" && !isInputActive)
       ) {
         e.preventDefault();
-        setIsComposerOpen((prev) => {
-          const next = !prev;
-          if (next) {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }
-          return next;
-        });
+        openCreateModal();
         return;
       }
 
@@ -170,21 +186,19 @@ const SnippetContainer = () => {
         return;
       }
 
-      // 4. Esc closes composer or clears search
+      // 4. Esc clears search
       if (e.key === "Escape") {
         if (searchQuery) {
           e.preventDefault();
           setSearchQuery("");
-        } else if (isComposerOpen) {
-          e.preventDefault();
-          setIsComposerOpen(false);
         }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [searchQuery, isComposerOpen, isSyncModalOpen, isModalOpen, isShortcutsOpen, isBackupOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, isSyncModalOpen, isModalOpen, isShortcutsOpen, isBackupOpen, isManageLabelsOpen]);
 
   const fetchFirebaseSnippets = async (uid) => {
     if (!db) return [];
@@ -193,10 +207,16 @@ const SnippetContainer = () => {
       const snippetsCol = collection(db, "snippets");
       const q = query(snippetsCol, where("uid", "==", uid));
       const snapshot = await getDocs(q);
-      const snippetsList = snapshot.docs.map((snapshotDoc) => ({
-        id: snapshotDoc.id,
-        ...snapshotDoc.data(),
-      }));
+      const snippetsList = snapshot.docs.map((snapshotDoc) => {
+        const data = snapshotDoc.data();
+        const rest = { ...data };
+        delete rest.tags;
+        return {
+          id: snapshotDoc.id,
+          ...rest,
+          labels: normalizeLabels(rest.labels),
+        };
+      });
       setSnippets(snippetsList);
       return snippetsList;
     } catch (error) {
@@ -226,7 +246,7 @@ const SnippetContainer = () => {
           title: dataToSave.title || "Untitled snippet",
           data: dataToSave.data || "",
           language: dataToSave.language || "markdown",
-          tags: Array.isArray(dataToSave.tags) ? dataToSave.tags : [],
+          labels: normalizeLabels(dataToSave.labels),
           pinned: Boolean(dataToSave.pinned),
           createdAt: dataToSave.createdAt || now,
           updatedAt: dataToSave.updatedAt || now,
@@ -271,27 +291,94 @@ const SnippetContainer = () => {
   };
 
   const handleAddSnippet = async (newSnippet) => {
+    if (createRequestRef.current) return;
+    createRequestRef.current = true;
     setIsSaving(true);
+    setCreateError("");
     try {
       if (user && db && isFirebaseConfigured) {
-        const snippetWithUid = { ...newSnippet, uid: user.uid, createdAt: Date.now() };
+        const snippetWithUid = { ...newSnippet, labels: normalizeLabels(newSnippet.labels), uid: user.uid, createdAt: Date.now(), updatedAt: Date.now() };
         const docRef = await addDoc(collection(db, "snippets"), snippetWithUid);
         const created = { id: docRef.id, ...snippetWithUid };
         setSnippets((prev) => [created, ...prev]);
       } else {
         const created = addLocalSnippet(newSnippet);
+        if (!getLocalSnippets().some((snippet) => snippet.id === created.id)) {
+          throw new Error("The snippet could not be stored in this browser.");
+        }
         setSnippets((prev) => [created, ...prev]);
       }
-      setIsComposerOpen(false);
+      createRequestRef.current = false;
+      closeModal();
+      setSelectedLabel("");
+      setSearchQuery("");
+      showToast("Snippet created.");
     } catch (error) {
       console.error("Error adding new snippet:", error);
+      setCreateError("Could not create the snippet. Your draft is still here. Please try again.");
     } finally {
+      createRequestRef.current = false;
       setIsSaving(false);
     }
   };
 
+  const createSnippet = () => {
+    if (!currentSnippet || createRequestRef.current) return;
+    const data = currentSnippet.data || "";
+    if (!currentSnippet.title.trim() && !data.trim()) return;
+    const language = detectLanguage(data);
+    handleAddSnippet({
+      title: currentSnippet.title.trim() || extractSmartTitle(data, language),
+      data,
+      language,
+      labels: normalizeLabels(currentSnippet.labels),
+      pinned: Boolean(currentSnippet.pinned),
+    });
+  };
+
+  const persistSnippetUpdates = async (snippetId, updates) => {
+    const setStatus = (status) => {
+      if (activeSnippetIdRef.current === snippetId) setAutosaveStatus(status);
+    };
+    setStatus("saving");
+    try {
+      let updated;
+      if (user && db && isFirebaseConfigured) {
+        await updateDoc(doc(db, "snippets", snippetId), updates);
+      } else {
+        updated = updateLocalSnippet(snippetId, updates);
+      }
+      setSnippets((prev) => prev.map((snippet) =>
+        snippet.id === snippetId ? (updated || { ...snippet, ...updates }) : snippet
+      ));
+      setStatus("saved");
+      if (activeSnippetIdRef.current === snippetId) {
+        autosaveFeedbackTimerRef.current = setTimeout(() => {
+          setStatus("ready");
+          autosaveFeedbackTimerRef.current = null;
+        }, 2200);
+      }
+    } catch (error) {
+      console.error("Error updating snippet:", error);
+      setStatus("error");
+      showToast("Could not save your changes. Please try again.");
+    }
+  };
+
+  const flushPendingSave = () => {
+    clearTimeout(typingTimeoutRef.current);
+    const pending = pendingSaveRef.current;
+    pendingSaveRef.current = null;
+    if (pending) persistSnippetUpdates(pending.id, pending.updates);
+  };
+
   const handleUpdateSnippet = (snippetId, updates) => {
     setCurrentSnippet((prev) => (prev ? { ...prev, ...updates } : { id: snippetId, ...updates }));
+
+    if (isCreatingSnippet) {
+      setCreateError("");
+      return;
+    }
 
     setAutosaveStatus("pending");
 
@@ -304,43 +391,17 @@ const SnippetContainer = () => {
       clearTimeout(typingTimeoutRef.current);
     }
 
-    typingTimeoutRef.current = setTimeout(async () => {
-      setAutosaveStatus("saving");
-
-      let success = false;
-      try {
-        if (user && db && isFirebaseConfigured) {
-          const snippetRef = doc(db, "snippets", snippetId);
-          await updateDoc(snippetRef, updates);
-          setSnippets((prev) =>
-            prev.map((s) => (s.id === snippetId ? { ...s, ...updates } : s))
-          );
-          success = true;
-        } else {
-          const updated = updateLocalSnippet(snippetId, updates);
-          setSnippets((prev) =>
-            prev.map((s) => (s.id === snippetId ? updated : s))
-          );
-          success = true;
-        }
-      } catch (err) {
-        console.error("Error updating snippet:", err);
-        success = false;
-      }
-
-      if (success) {
-        setAutosaveStatus("saved");
-        autosaveFeedbackTimerRef.current = setTimeout(() => {
-          setAutosaveStatus("ready");
-          autosaveFeedbackTimerRef.current = null;
-        }, 2200);
-      } else {
-        setAutosaveStatus("error");
-      }
-    }, AUTOSAVE_DELAY);
+    const { id: ignoredId, ...dataToSave } = { ...currentSnippet, ...updates };
+    pendingSaveRef.current = {
+      id: snippetId,
+      updates: dataToSave,
+    };
+    typingTimeoutRef.current = setTimeout(flushPendingSave, AUTOSAVE_DELAY);
   };
 
   const handleDeleteSnippet = async (snippetId) => {
+    clearTimeout(typingTimeoutRef.current);
+    pendingSaveRef.current = null;
     try {
       if (user && db && isFirebaseConfigured) {
         const snippetRef = doc(db, "snippets", snippetId);
@@ -371,42 +432,209 @@ const SnippetContainer = () => {
   };
 
   const openModal = (snippet) => {
+    activeSnippetIdRef.current = snippet.id;
+    setIsCreatingSnippet(false);
     setCurrentSnippet(snippet);
     setIsModalOpen(true);
     setAutosaveStatus("ready");
     setIsDeleteConfirming(false);
     setModalTab("write");
+    setModalLabelInput("");
+  };
+
+  const openCreateModal = () => {
+    activeSnippetIdRef.current = null;
+    setCurrentSnippet({ id: null, title: "", data: "", labels: [], pinned: false });
+    setIsCreatingSnippet(true);
+    setIsModalOpen(true);
+    setCreateError("");
+    setAutosaveStatus("ready");
+    setIsDeleteConfirming(false);
+    setModalTab("write");
+    setModalLabelInput("");
   };
 
   const closeModal = () => {
+    if (createRequestRef.current) return;
+    activeSnippetIdRef.current = null;
+    if (!isCreatingSnippet) flushPendingSave();
     setIsModalOpen(false);
     setCurrentSnippet(null);
     setAutosaveStatus("ready");
     setIsDeleteConfirming(false);
+    setModalLabelInput("");
+    setIsCreatingSnippet(false);
+    setCreateError("");
     if (autosaveFeedbackTimerRef.current) {
       clearTimeout(autosaveFeedbackTimerRef.current);
     }
   };
 
-  // Language count map for fast 1-click filter badges
-  const languageCounts = useMemo(() => {
-    const counts = {};
-    snippets.forEach((s) => {
-      const lang = (s.language || "text").toLowerCase();
-      counts[lang] = (counts[lang] || 0) + 1;
-    });
-    return counts;
-  }, [snippets]);
+  // Editor modal shortcuts: work regardless of focus placement while a snippet is open.
+  // ⌘/Ctrl+Enter = Done, ⌘/Ctrl+Backspace = Delete (press once to arm, again to confirm).
+  // closeModal/handleDeleteSnippet are stable in behavior; resubscribing only on state.
+  useEffect(() => {
+    if (!isModalOpen || !currentSnippet) return;
 
-  // Unique tags list
-  const allTags = useMemo(() => {
-    const tagSet = new Set();
+    const handleModalKeyDown = (event) => {
+      const target = event.target;
+      const isEditing =
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        if (isCreatingSnippet) createSnippet();
+        else closeModal();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "Backspace") {
+        if (isCreatingSnippet) return;
+        // Never hijack editing keys inside text fields
+        if (isEditing) return;
+        event.preventDefault();
+        if (isDeleteConfirming) {
+          handleDeleteSnippet(currentSnippet.id);
+        } else {
+          setIsDeleteConfirming(true);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleModalKeyDown);
+    return () => window.removeEventListener("keydown", handleModalKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModalOpen, currentSnippet, isDeleteConfirming, isCreatingSnippet]);
+
+  // Per-snippet label edits inside the editor modal (persisted via autosave)
+  const handleModalAddLabel = (label) => {
+    if (!currentSnippet) return;
+    const clean = label.trim().replace(/^#+/, "");
+    if (!clean) return;
+    const current = Array.isArray(currentSnippet.labels) ? currentSnippet.labels : [];
+    if (current.some((l) => l.toLowerCase() === clean.toLowerCase())) {
+      setModalLabelInput("");
+      return;
+    }
+    handleUpdateSnippet(currentSnippet.id, {
+      ...currentSnippet,
+      labels: [...current, clean],
+    });
+    setModalLabelInput("");
+  };
+
+  const handleModalRemoveLabel = (label) => {
+    if (!currentSnippet) return;
+    const current = Array.isArray(currentSnippet.labels) ? currentSnippet.labels : [];
+    handleUpdateSnippet(currentSnippet.id, {
+      ...currentSnippet,
+      labels: current.filter((l) => l !== label),
+    });
+  };
+
+  // Persist a bulk label transform across local or cloud storage
+  const persistBulkLabelChange = async (transform) => {
+    const affected = snippets.filter((s) =>
+      Array.isArray(s.labels) && s.labels.some((l) => transform.appliesTo(l))
+    );
+    if (affected.length === 0) return 0;
+
+    if (user && db && isFirebaseConfigured) {
+      // Firestore batches are limited to 500 writes; chunk defensively
+      for (let i = 0; i < affected.length; i += 500) {
+        const batch = writeBatch(db);
+        affected.slice(i, i + 500).forEach((snippet) => {
+          batch.update(doc(db, "snippets", snippet.id), {
+            labels: normalizeLabels(transform.nextLabels(snippet.labels)),
+          });
+        });
+        await batch.commit();
+      }
+    }
+
+    const updated = snippets.map((s) =>
+      affected.some((a) => a.id === s.id)
+        ? { ...s, labels: normalizeLabels(transform.nextLabels(s.labels)), updatedAt: Date.now() }
+        : s
+    );
+    if (!(user && db && isFirebaseConfigured)) {
+      setLocalSnippets(updated);
+    }
+    setSnippets(updated);
+    return affected.length;
+  };
+
+  // Global label rename: every snippet carrying oldName moves to newName (merges on collision)
+  const handleRenameLabel = async (oldName, newName) => {
+    const clean = String(newName ?? "").trim().replace(/^#+/, "");
+    if (!clean || clean.toLowerCase() === oldName.toLowerCase()) return 0;
+    const count = await persistBulkLabelChange({
+      appliesTo: (l) => l.toLowerCase() === oldName.toLowerCase(),
+      nextLabels: (labels) =>
+        normalizeLabels(labels).map((l) =>
+          l.toLowerCase() === oldName.toLowerCase() ? clean : l
+        ),
+    });
+    if (selectedLabel.toLowerCase() === oldName.toLowerCase()) {
+      setSelectedLabel(clean);
+    }
+    setCurrentSnippet((prev) =>
+      prev && Array.isArray(prev.labels) && prev.labels.some((l) => l.toLowerCase() === oldName.toLowerCase())
+        ? {
+            ...prev,
+            labels: normalizeLabels(prev.labels).map((l) =>
+              l.toLowerCase() === oldName.toLowerCase() ? clean : l
+            ),
+          }
+        : prev
+    );
+    if (count > 0) {
+      showToast(`Renamed label "${oldName}" to "${clean}" on ${count} snippet${count === 1 ? "" : "s"}.`);
+    }
+    return count;
+  };
+
+  // Global label delete: removed from every snippet carrying it
+  const handleDeleteLabel = async (name) => {
+    const count = await persistBulkLabelChange({
+      appliesTo: (l) => l.toLowerCase() === name.toLowerCase(),
+      nextLabels: (labels) =>
+        normalizeLabels(labels).filter((l) => l.toLowerCase() !== name.toLowerCase()),
+    });
+    if (selectedLabel.toLowerCase() === name.toLowerCase()) {
+      setSelectedLabel("");
+    }
+    setCurrentSnippet((prev) =>
+      prev && Array.isArray(prev.labels)
+        ? { ...prev, labels: prev.labels.filter((l) => l.toLowerCase() !== name.toLowerCase()) }
+        : prev
+    );
+    if (count > 0) {
+      showToast(`Deleted label "${name}" from ${count} snippet${count === 1 ? "" : "s"}.`);
+    }
+    return count;
+  };
+
+  // Unique labels list with usage counts
+  const allLabels = useMemo(() => {
+    const labelSet = new Set();
     snippets.forEach((s) => {
-      if (Array.isArray(s.tags)) {
-        s.tags.forEach((t) => tagSet.add(t));
+      if (Array.isArray(s.labels)) {
+        s.labels.forEach((t) => labelSet.add(t));
       }
     });
-    return Array.from(tagSet).sort();
+    return Array.from(labelSet).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  }, [snippets]);
+
+  const labelCounts = useMemo(() => {
+    const counts = {};
+    snippets.forEach((s) => {
+      if (Array.isArray(s.labels)) {
+        s.labels.forEach((t) => {
+          counts[t] = (counts[t] || 0) + 1;
+        });
+      }
+    });
+    return counts;
   }, [snippets]);
 
   // Filtering & Sorting (pinned first)
@@ -415,14 +643,9 @@ const SnippetContainer = () => {
 
     return snippets
       .filter((s) => {
-        // Tag filter
-        if (selectedTag !== "all") {
-          if (!s.tags || !s.tags.includes(selectedTag)) return false;
-        }
-
-        // Language filter
-        if (selectedLanguage !== "all") {
-          if ((s.language || "").toLowerCase() !== selectedLanguage.toLowerCase()) return false;
+        // Label filter
+        if (selectedLabel) {
+          if (!s.labels || !s.labels.includes(selectedLabel)) return false;
         }
 
         // Search query filter
@@ -430,13 +653,13 @@ const SnippetContainer = () => {
 
         const title = (s.title || "").toLowerCase();
         const data = (s.data || "").toLowerCase();
-        const tagsStr = (s.tags || []).join(" ").toLowerCase();
+        const labelsStr = (s.labels || []).join(" ").toLowerCase();
         const lang = (s.language || "").toLowerCase();
 
         return (
           title.includes(queryNorm) ||
           data.includes(queryNorm) ||
-          tagsStr.includes(queryNorm) ||
+          labelsStr.includes(queryNorm) ||
           lang.includes(queryNorm)
         );
       })
@@ -445,7 +668,7 @@ const SnippetContainer = () => {
         if (!a.pinned && b.pinned) return 1;
         return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
       });
-  }, [snippets, searchQuery, selectedTag, selectedLanguage]);
+  }, [snippets, searchQuery, selectedLabel]);
 
   const totalSnippets = snippets.length;
   const visibleSnippets = filteredSnippets.length;
@@ -467,6 +690,7 @@ const SnippetContainer = () => {
           </div>
           <div className="brand-meta">
             <span className="brand-title">Snippets</span>
+            <p className="brand-description">Your code and notes, in one place.</p>
           </div>
         </div>
 
@@ -501,10 +725,11 @@ const SnippetContainer = () => {
           </button>
 
           <GoogleAuthButton user={user} />
+          <span data-brand-launcher></span>
         </div>
       </header>
 
-      {/* Primary Interaction Hub: Search & Quick-Capture */}
+      {/* Search and create */}
       <section className="search-hub-section" aria-label="Search and create snippets">
         <div className="search-hub-bar">
           {/* Omni-Search Input */}
@@ -524,7 +749,8 @@ const SnippetContainer = () => {
               ref={searchInputRef}
               id="omni-search-input"
               type="search"
-              placeholder="Search by title, tag, or code (Press ⌘K or /)..."
+              placeholder="Search snippets…"
+              aria-label="Search snippets"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               autoComplete="off"
@@ -542,58 +768,40 @@ const SnippetContainer = () => {
             <kbd className="search-hub-kbd">⌘K</kbd>
           </div>
 
-          {/* "+ New Snippet" Quick-Capture Trigger */}
+          {/* Create in the shared editor */}
           <button
             type="button"
-            className={`quick-capture-toggle-btn ${isComposerOpen ? "active" : ""}`}
-            onClick={() => setIsComposerOpen(!isComposerOpen)}
+            className="new-snippet-btn"
+            onClick={openCreateModal}
             title="Create new snippet (Press C or ⌥N)"
           >
-            <span className="capture-btn-icon">{isComposerOpen ? "✕" : "+"}</span>
-            <span className="capture-btn-text">{isComposerOpen ? "Close" : "New Snippet"}</span>
+            <span className="capture-btn-icon" aria-hidden="true">+</span>
+            <span className="capture-btn-text">New snippet</span>
             <kbd className="capture-btn-kbd">C</kbd>
           </button>
         </div>
 
-        {/* Dynamic Language Filter Badges (1-Click Filtering) */}
+        {/* Library controls */}
         <div className="quick-filter-strip">
-          <div className="filter-badges-scroll">
-            <button
-              type="button"
-              className={`quick-filter-pill ${selectedLanguage === "all" ? "selected" : ""}`}
-              onClick={() => setSelectedLanguage("all")}
+          <div className="library-label-controls">
+            <select
+              className="library-label-filter"
+              aria-label="Filter by label"
+              value={selectedLabel}
+              onChange={(event) => setSelectedLabel(event.target.value)}
             >
-              <span>All</span>
-              <span className="filter-count-badge">{totalSnippets}</span>
-            </button>
-
-            {Object.entries(languageCounts).map(([lang, count]) => (
+              <option value="">All labels</option>
+              {allLabels.map((label) => <option key={label} value={label}>{label}</option>)}
+            </select>
+            {allLabels.length > 0 && (
               <button
-                key={lang}
                 type="button"
-                className={`quick-filter-pill ${selectedLanguage === lang ? "selected" : ""}`}
-                onClick={() => setSelectedLanguage(lang)}
+                className="manage-labels-btn"
+                onClick={() => setIsManageLabelsOpen(true)}
+                title="Rename or delete labels"
               >
-                <span>{lang}</span>
-                <span className="filter-count-badge">{count}</span>
+                Manage labels
               </button>
-            ))}
-
-            {/* Tags separator */}
-            {allTags.length > 0 && (
-              <>
-                <span className="filter-strip-divider" />
-                {allTags.map((tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    className={`quick-tag-pill ${selectedTag === tag ? "selected" : ""}`}
-                    onClick={() => setSelectedTag(selectedTag === tag ? "all" : tag)}
-                  >
-                    #{tag}
-                  </button>
-                ))}
-              </>
             )}
           </div>
 
@@ -605,6 +813,8 @@ const SnippetContainer = () => {
               onClick={() => handleToggleViewMode("grid")}
               title="Grid View"
               aria-label="Grid view"
+              role="radio"
+              aria-checked={viewMode === "grid"}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -619,6 +829,8 @@ const SnippetContainer = () => {
               onClick={() => handleToggleViewMode("list")}
               title="Compact List View"
               aria-label="List view"
+              role="radio"
+              aria-checked={viewMode === "list"}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="3" y1="6" x2="21" y2="6" />
@@ -630,32 +842,24 @@ const SnippetContainer = () => {
         </div>
       </section>
 
-      {/* Quick Capture Dock (Opened via ⌘N or "+ New Snippet") */}
-      {isComposerOpen && (
-        <SnippetForm
-          addSnippet={handleAddSnippet}
-          isSaving={isSaving}
-          onCancel={() => setIsComposerOpen(false)}
-        />
-      )}
-
       {/* Snippet Library Grid / List */}
       <section className="library-section" aria-live="polite">
         <div className="library-section-header">
           <div className="library-title-group">
-            <h2 className="library-title">Library</h2>
+            <h2 className="library-title">Your snippets</h2>
             <span className="library-count-pill">
-              {visibleSnippets} of {totalSnippets} snippets
+              {visibleSnippets === totalSnippets
+                ? `${totalSnippets} snippet${totalSnippets === 1 ? "" : "s"}`
+                : `${visibleSnippets} of ${totalSnippets} snippets`}
             </span>
           </div>
 
-          {(selectedLanguage !== "all" || selectedTag !== "all" || searchQuery) && (
+          {(selectedLabel || searchQuery) && (
             <button
               type="button"
               className="reset-filters-btn"
               onClick={() => {
-                setSelectedLanguage("all");
-                setSelectedTag("all");
+                setSelectedLabel("");
                 setSearchQuery("");
               }}
             >
@@ -673,14 +877,15 @@ const SnippetContainer = () => {
 
         {!isLoading && totalSnippets === 0 && (
           <div className="empty-state">
-            <span className="empty-eyebrow">Workspace</span>
-            <h3 className="empty-title">Capture your first code fragment</h3>
+            <span className="empty-eyebrow">Your workspace</span>
+            <h3 className="empty-title">A home for your code and notes</h3>
+            <p className="empty-description">Save useful snippets and organize them with labels, ready for the next time you need them.</p>
             <button
               type="button"
               className="primary-action"
-              onClick={() => setIsComposerOpen(true)}
+              onClick={openCreateModal}
             >
-              + Create Snippet (C)
+              Create your first snippet
             </button>
           </div>
         )}
@@ -696,8 +901,7 @@ const SnippetContainer = () => {
               type="button"
               className="ghost-button"
               onClick={() => {
-                setSelectedLanguage("all");
-                setSelectedTag("all");
+                setSelectedLabel("");
                 setSearchQuery("");
               }}
             >
@@ -718,156 +922,190 @@ const SnippetContainer = () => {
       </section>
 
       {/* Focused Editor Modal */}
-      <Modal show={isModalOpen} onClose={closeModal} maxWidth="960px">
+      <Modal
+        show={isModalOpen}
+        onClose={closeModal}
+        ariaLabel={isCreatingSnippet ? "Create snippet" : "Edit snippet"}
+        maxWidth="960px"
+        onEscapeKey={() => {
+          if (isDeleteConfirming) {
+            setIsDeleteConfirming(false);
+          } else {
+            closeModal();
+          }
+        }}
+      >
         {currentSnippet && (
           <div className="modal-editor">
-            {/* Modal Top */}
-            <div className="modal-top-row">
-              <div className="modal-title-box">
-                <input
-                  className="modal-editor-title"
-                  type="text"
-                  placeholder="Snippet title..."
-                  value={currentSnippet.title || ""}
-                  onChange={(e) =>
-                    handleUpdateSnippet(currentSnippet.id, {
-                      ...currentSnippet,
-                      title: e.target.value,
-                    })
-                  }
-                />
+            <div className="modal-editor-main">
+              {/* Modal Top */}
+              <div className="modal-top-row">
+                <div className="modal-title-box">
+                  <input
+                    className="modal-editor-title"
+                    type="text"
+                    placeholder={isCreatingSnippet ? "Title (optional)" : "Snippet title"}
+                    aria-label="Snippet title"
+                    autoFocus
+                    disabled={isSaving}
+                    value={currentSnippet.title || ""}
+                    onChange={(e) =>
+                      handleUpdateSnippet(currentSnippet.id, {
+                        ...currentSnippet,
+                        title: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                {/* View Tabs */}
+                <div className="modal-header-controls">
+                  <div className="modal-tabs">
+                    <button
+                      type="button"
+                      className={`tab-btn ${modalTab === "write" ? "active" : ""}`}
+                      onClick={() => setModalTab("write")}
+                    >
+                      Write
+                    </button>
+                    <button
+                      type="button"
+                      className={`tab-btn ${modalTab === "split" ? "active" : ""}`}
+                      onClick={() => setModalTab("split")}
+                    >
+                      Split
+                    </button>
+                    <button
+                      type="button"
+                      className={`tab-btn ${modalTab === "preview" ? "active" : ""}`}
+                      onClick={() => setModalTab("preview")}
+                    >
+                      Preview
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="icon-close-btn modal-close-x"
+                    onClick={closeModal}
+                    aria-label="Close modal"
+                    disabled={isSaving}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
-              {/* View Tabs */}
-              <div className="modal-tabs">
-                <button
-                  type="button"
-                  className={`tab-btn ${modalTab === "write" ? "active" : ""}`}
-                  onClick={() => setModalTab("write")}
-                >
-                  Write
-                </button>
-                <button
-                  type="button"
-                  className={`tab-btn ${modalTab === "split" ? "active" : ""}`}
-                  onClick={() => setModalTab("split")}
-                >
-                  Split
-                </button>
-                <button
-                  type="button"
-                  className={`tab-btn ${modalTab === "preview" ? "active" : ""}`}
-                  onClick={() => setModalTab("preview")}
-                >
-                  Preview
-                </button>
-                <button
-                  type="button"
-                  className="icon-close-btn modal-close-x"
-                  onClick={closeModal}
-                  aria-label="Close modal"
-                >
-                  ✕
-                </button>
+              {/* Modal Labels (editable) */}
+              <SnippetLabelsEditor
+                labels={currentSnippet.labels || []}
+                availableLabels={allLabels}
+                inputValue={modalLabelInput}
+                onInputChange={setModalLabelInput}
+                onAdd={handleModalAddLabel}
+                onRemove={handleModalRemoveLabel}
+                disabled={isSaving}
+              />
+
+              {/* Modal Fields */}
+              <div className={`modal-editor-fields layout-${modalTab}`}>
+                {modalTab !== "preview" && (
+                  <textarea
+                    className="modal-editor-body"
+                    aria-label="Snippet content"
+                    disabled={isSaving}
+                    value={currentSnippet.data || ""}
+                    placeholder="Write markdown or code snippets with ```language ... ```"
+                    onChange={(e) =>
+                      handleUpdateSnippet(currentSnippet.id, {
+                        ...currentSnippet,
+                        data: e.target.value,
+                      })
+                    }
+                  />
+                )}
+
+                {modalTab !== "write" && (
+                  <div className="modal-preview-body">
+                    <RichContent content={currentSnippet.data || ""} isPreview={true} />
+                  </div>
+                )}
               </div>
-            </div>
 
-            {/* Modal Tags */}
-            <div className="modal-tags-row">
-              <span className="lang-badge">
-                {(currentSnippet.language || "text").toUpperCase()}
-              </span>
-              {currentSnippet.tags && currentSnippet.tags.length > 0 && (
-                <div className="tags-active-list">
-                  {currentSnippet.tags.map((tag) => (
-                    <span key={tag} className="tag-chip active">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Modal Fields */}
-            <div className={`modal-editor-fields layout-${modalTab}`}>
-              {modalTab !== "preview" && (
-                <textarea
-                  className="modal-editor-body"
-                  value={currentSnippet.data || ""}
-                  placeholder="Write markdown or code snippets with ```language ... ```"
-                  onChange={(e) =>
-                    handleUpdateSnippet(currentSnippet.id, {
-                      ...currentSnippet,
-                      data: e.target.value,
-                    })
-                  }
-                />
-              )}
-
-              {modalTab !== "write" && (
-                <div className="modal-preview-body">
-                  <RichContent content={currentSnippet.data || ""} isPreview={true} />
-                </div>
-              )}
-            </div>
-
-            {/* Autosave feedback */}
-            <div
-              className="modal-editor-status"
-              role="status"
-              aria-live="polite"
-              data-state={autosaveStatus}
-            >
-              {autosaveStatus === "saving" && "Saving changes..."}
-              {autosaveStatus === "saved" && "✓ All changes saved"}
-              {autosaveStatus === "pending" && "Changes pending..."}
-              {autosaveStatus === "error" && "Failed to autosave."}
-              {autosaveStatus === "ready" && "Ready to edit"}
+              {/* Autosave feedback */}
+              <div
+                className="modal-editor-status"
+                role={createError ? "alert" : "status"}
+                aria-live="polite"
+                data-state={createError ? "error" : autosaveStatus}
+              >
+                {isCreatingSnippet ? (
+                  createError || (isSaving ? "Creating snippet..." : "Add a title or content, then create your snippet.")
+                ) : (
+                  <>
+                    {autosaveStatus === "saving" && "Saving changes..."}
+                    {autosaveStatus === "saved" && "✓ All changes saved"}
+                    {autosaveStatus === "pending" && "Changes pending..."}
+                    {autosaveStatus === "error" && "Failed to autosave."}
+                    {autosaveStatus === "ready" && "Changes save automatically"}
+                  </>
+                )}
+              </div>
             </div>
 
             {/* Modal Actions */}
             <div className="modal-editor-actions">
               <div className="modal-left-actions">
-                <button
-                  type="button"
-                  className="ghost-button action-btn-icon"
-                  onClick={() => exportSnippetAsMarkdown(currentSnippet)}
-                  title="Download snippet as Markdown file"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  <span>Export .md</span>
-                </button>
+                {isCreatingSnippet ? (
+                  <button type="button" className="ghost-button" onClick={closeModal} disabled={isSaving}>
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="ghost-button action-btn-icon"
+                    onClick={() => exportSnippetAsMarkdown(currentSnippet)}
+                    title="Download snippet as Markdown file"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Export .md</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
                   className={`ghost-button action-btn-icon ${currentSnippet.pinned ? "active" : ""}`}
-                  onClick={() => handleTogglePin(currentSnippet.id)}
+                  onClick={() => handleUpdateSnippet(currentSnippet.id, { pinned: !currentSnippet.pinned })}
+                  disabled={isSaving}
                 >
                   <span>{currentSnippet.pinned ? "★ Pinned" : "☆ Pin snippet"}</span>
                 </button>
               </div>
 
               <div className="modal-right-actions">
-                {isDeleteConfirming ? (
+                {!isCreatingSnippet && (isDeleteConfirming ? (
                   <div className="delete-confirm-group">
                     <span className="delete-confirm-text">Delete permanently?</span>
                     <button
                       type="button"
                       className="danger-button"
                       onClick={() => handleDeleteSnippet(currentSnippet.id)}
+                      title="Confirm delete (⌘/Ctrl+Backspace)"
                     >
-                      Yes, delete
+                      <span>Yes, delete</span>
+                      <kbd className="btn-kbd">⌘⌫</kbd>
                     </button>
                     <button
                       type="button"
                       className="ghost-button"
                       onClick={() => setIsDeleteConfirming(false)}
+                      title="Cancel (Esc)"
                     >
-                      Cancel
+                      <span>Cancel</span>
+                      <kbd className="btn-kbd">esc</kbd>
                     </button>
                   </div>
                 ) : (
@@ -875,12 +1113,21 @@ const SnippetContainer = () => {
                     type="button"
                     className="danger-button"
                     onClick={() => setIsDeleteConfirming(true)}
+                    title="Delete snippet (⌘/Ctrl+Backspace, twice to confirm)"
                   >
-                    Delete
+                    <span>Delete</span>
+                    <kbd className="btn-kbd">⌘⌫</kbd>
                   </button>
-                )}
-                <button type="button" className="primary-action" onClick={closeModal}>
-                  Done
+                ))}
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={isCreatingSnippet ? createSnippet : closeModal}
+                  disabled={isSaving || (isCreatingSnippet && !currentSnippet.title.trim() && !currentSnippet.data.trim())}
+                  title={isCreatingSnippet ? "Create snippet (⌘/Ctrl+Enter)" : "Done (⌘/Ctrl+Enter)"}
+                >
+                  <span>{isCreatingSnippet ? (isSaving ? "Creating..." : "Create snippet") : "Done"}</span>
+                  <kbd className="btn-kbd">⌘↵</kbd>
                 </button>
               </div>
             </div>
@@ -900,6 +1147,16 @@ const SnippetContainer = () => {
         onClose={() => setIsBackupOpen(false)}
         totalSnippets={totalSnippets}
         onImportSuccess={(newSnippets) => setSnippets(newSnippets)}
+      />
+
+      {/* Manage Labels Modal */}
+      <ManageLabelsModal
+        isOpen={isManageLabelsOpen}
+        onClose={() => setIsManageLabelsOpen(false)}
+        labels={allLabels}
+        labelCounts={labelCounts}
+        onRename={handleRenameLabel}
+        onDelete={handleDeleteLabel}
       />
 
       {/* Approach B: Sync Local Snippets Modal */}

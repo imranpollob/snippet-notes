@@ -18,15 +18,13 @@ const COMMON_LANGUAGES = [
   { id: "markdown", label: "Markdown / Notes" },
 ];
 
-const POPULAR_TAGS = ["React", "TypeScript", "Python", "SQL", "DevOps", "Hooks", "API", "Workflow"];
-
-const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null }) => {
+const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLabels = [] }) => {
   const [title, setTitle] = useState("");
   const [data, setData] = useState("");
   const [selectedLangOption, setSelectedLangOption] = useState("auto");
   const [detectedLang, setDetectedLang] = useState("typescript");
-  const [tags, setTags] = useState([]);
-  const [tagInput, setTagInput] = useState("");
+  const [labels, setLabels] = useState([]);
+  const [labelInput, setLabelInput] = useState("");
   const [activeTab, setActiveTab] = useState("write"); // "write" | "preview"
   const textareaRef = useRef(null);
   const titleInputRef = useRef(null);
@@ -54,8 +52,8 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null }) => {
   const resetForm = useCallback(() => {
     setTitle("");
     setData("");
-    setTags([]);
-    setTagInput("");
+    setLabels([]);
+    setLabelInput("");
     setSelectedLangOption("auto");
     setActiveTab("write");
     if (textareaRef.current) {
@@ -69,19 +67,15 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null }) => {
     textareaRef.current.style.height = `${Math.max(160, textareaRef.current.scrollHeight)}px`;
   }, []);
 
-  const toggleTag = (tag) => {
-    if (tags.includes(tag)) {
-      setTags(tags.filter((t) => t !== tag));
-    } else {
-      setTags([...tags, tag]);
-    }
+  const handleAddLabel = () => {
+    const clean = labelInput.trim().replace(/^#+/, "");
+    if (!clean || labels.some((l) => l.toLowerCase() === clean.toLowerCase())) return;
+    setLabels([...labels, clean]);
+    setLabelInput("");
   };
 
-  const handleAddCustomTag = () => {
-    const clean = tagInput.trim().replace(/^#/, "");
-    if (!clean || tags.includes(clean)) return;
-    setTags([...tags, clean]);
-    setTagInput("");
+  const handleRemoveLabel = (label) => {
+    setLabels(labels.filter((l) => l !== label));
   };
 
   const submitSnippet = useCallback(async () => {
@@ -96,10 +90,10 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null }) => {
       title: finalTitle,
       data: trimmedData,
       language: effectiveLanguage,
-      tags,
+      labels,
     });
     resetForm();
-  }, [title, data, suggestedTitle, effectiveLanguage, tags, addSnippet, resetForm, isSaving]);
+  }, [title, data, suggestedTitle, effectiveLanguage, labels, addSnippet, resetForm, isSaving]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -131,7 +125,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null }) => {
               type="text"
               placeholder={
                 suggestedTitle
-                  ? `Title: "${suggestedTitle}" (or type custom label)`
+                  ? `Title: "${suggestedTitle}" (or type your own)`
                   : "Snippet title (or leave blank for auto-title)..."
               }
               value={title}
@@ -207,38 +201,47 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null }) => {
           )}
         </div>
 
-        {/* Bottom bar: Quick tags + Shortcuts & Actions */}
+        {/* Bottom bar: Labels + Shortcuts & Actions */}
         <div className="quick-capture-footer">
-          {/* Quick-toggle tags */}
-          <div className="quick-tags-strip">
-            <span className="quick-tags-label">Tags:</span>
-            {POPULAR_TAGS.map((t) => {
-              const active = tags.includes(t);
-              return (
+          {/* Labels: reuse a previous label or create a new one */}
+          <div className="quick-labels-strip">
+            <span className="quick-labels-label">Labels:</span>
+            {labels.map((label) => (
+              <span key={label} className="quick-label-chip">
+                #{label}
                 <button
-                  key={t}
                   type="button"
-                  className={`quick-tag-chip ${active ? "active" : ""}`}
-                  onClick={() => toggleTag(t)}
+                  className="quick-label-remove"
+                  onClick={() => handleRemoveLabel(label)}
+                  aria-label={`Remove label ${label}`}
                 >
-                  {active ? `✓ #${t}` : `+${t}`}
+                  ×
                 </button>
-              );
-            })}
-            <div className="custom-tag-box">
+              </span>
+            ))}
+            <div className="custom-label-box">
               <input
                 type="text"
-                className="custom-tag-input"
-                placeholder="+ custom..."
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
+                className="custom-label-input"
+                placeholder="+ add label..."
+                value={labelInput}
+                list="snippet-label-options"
+                onChange={(e) => setLabelInput(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === ",") {
                     e.preventDefault();
-                    handleAddCustomTag();
+                    handleAddLabel();
                   }
                 }}
+                onBlur={handleAddLabel}
               />
+              <datalist id="snippet-label-options">
+                {existingLabels
+                  .filter((l) => !labels.includes(l))
+                  .map((l) => (
+                    <option key={l} value={l} />
+                  ))}
+              </datalist>
             </div>
           </div>
 
