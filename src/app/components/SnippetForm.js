@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { RichContent } from "../../lib/syntaxHighlight";
+import { continueListOnEnter } from "../../lib/listContinuation";
 import { detectLanguage, extractSmartTitle } from "../../lib/storage";
 
 const COMMON_LANGUAGES = [
@@ -187,6 +188,12 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
                 handleResize();
               }}
               onInput={handleResize}
+              onKeyDown={(e) =>
+                continueListOnEnter(e, (next) => {
+                  setData(next);
+                  requestAnimationFrame(handleResize);
+                })
+              }
             />
           ) : (
             <div className="quick-capture-preview">

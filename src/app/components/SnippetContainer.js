@@ -8,6 +8,7 @@ import SnippetsComponent from "./SnippetsComponent";
 import LabelFilterDropdown from "./LabelFilterDropdown";
 import SnippetLabelsEditor from "./SnippetLabelsEditor";
 import Modal from "./Modal";
+import { continueListOnEnter } from "../../lib/listContinuation";
 import ThemeToggle from "./ThemeToggle";
 import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 import ExportImportModal from "./ExportImportModal";
@@ -1012,6 +1013,11 @@ const SnippetContainer = () => {
                         ...currentSnippet,
                         data: e.target.value,
                       })
+                    }
+                    onKeyDown={(e) =>
+                      continueListOnEnter(e, (next) =>
+                        handleUpdateSnippet(currentSnippet.id, { ...currentSnippet, data: next })
+                      )
                     }
                   />
                 )}
