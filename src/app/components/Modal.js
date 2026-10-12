@@ -25,7 +25,7 @@ const Modal = ({ show, onClose, children, maxWidth = "860px", onEscapeKey = null
     document.body.style.overflow = "hidden";
     const focusFrame = requestAnimationFrame(() => {
       if (!backdropRef.current?.contains(document.activeElement)) {
-        backdropRef.current?.querySelector('input:not(:disabled), button:not(:disabled), textarea:not(:disabled)')?.focus();
+        (backdropRef.current?.querySelector('[data-autofocus="true"]:not(:disabled)') || backdropRef.current?.querySelector('input:not(:disabled), button:not(:disabled), textarea:not(:disabled)'))?.focus();
       }
     });
 

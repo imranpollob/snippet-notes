@@ -5,6 +5,7 @@ import Image from "next/image";
 import logoPic from "../../../public/logo.png";
 import GoogleAuthButton from "./GoogleAuthButton";
 import SnippetsComponent from "./SnippetsComponent";
+import LabelFilterDropdown from "./LabelFilterDropdown";
 import SnippetLabelsEditor from "./SnippetLabelsEditor";
 import Modal from "./Modal";
 import ThemeToggle from "./ThemeToggle";
@@ -23,7 +24,6 @@ import {
   exportSnippetAsMarkdown,
   normalizeLabels,
   detectLanguage,
-  extractSmartTitle,
 } from "../../lib/storage";
 import { auth, db, isFirebaseConfigured, onAuthStateChanged } from "../../../firebase";
 import {
@@ -59,6 +59,7 @@ const SnippetContainer = () => {
   const [modalTab, setModalTab] = useState("write"); // "write" | "split" | "preview"
   const [isManageLabelsOpen, setIsManageLabelsOpen] = useState(false);
   const [modalLabelInput, setModalLabelInput] = useState("");
+  const [modalCopied, setModalCopied] = useState(false);
 
   // Approach B: Sync Local Snippets Modal state
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
@@ -243,7 +244,7 @@ const SnippetContainer = () => {
         const docRef = doc(collection(db, "snippets"));
         const { id, ...dataToSave } = snippet;
         batch.set(docRef, {
-          title: dataToSave.title || "Untitled snippet",
+          title: dataToSave.title || "",
           data: dataToSave.data || "",
           language: dataToSave.language || "markdown",
           labels: normalizeLabels(dataToSave.labels),
@@ -328,7 +329,7 @@ const SnippetContainer = () => {
     if (!currentSnippet.title.trim() && !data.trim()) return;
     const language = detectLanguage(data);
     handleAddSnippet({
-      title: currentSnippet.title.trim() || extractSmartTitle(data, language),
+      title: (currentSnippet.title || "").trim(),
       data,
       language,
       labels: normalizeLabels(currentSnippet.labels),
@@ -440,6 +441,7 @@ const SnippetContainer = () => {
     setIsDeleteConfirming(false);
     setModalTab("write");
     setModalLabelInput("");
+    setModalCopied(false);
   };
 
   const openCreateModal = () => {
@@ -452,6 +454,7 @@ const SnippetContainer = () => {
     setIsDeleteConfirming(false);
     setModalTab("write");
     setModalLabelInput("");
+    setModalCopied(false);
   };
 
   const closeModal = () => {
@@ -463,6 +466,7 @@ const SnippetContainer = () => {
     setAutosaveStatus("ready");
     setIsDeleteConfirming(false);
     setModalLabelInput("");
+    setModalCopied(false);
     setIsCreatingSnippet(false);
     setCreateError("");
     if (autosaveFeedbackTimerRef.current) {
@@ -690,7 +694,6 @@ const SnippetContainer = () => {
           </div>
           <div className="brand-meta">
             <span className="brand-title">Snippets</span>
-            <p className="brand-description">Your code and notes, in one place.</p>
           </div>
         </div>
 
@@ -784,15 +787,13 @@ const SnippetContainer = () => {
         {/* Library controls */}
         <div className="quick-filter-strip">
           <div className="library-label-controls">
-            <select
-              className="library-label-filter"
-              aria-label="Filter by label"
+            <LabelFilterDropdown
               value={selectedLabel}
-              onChange={(event) => setSelectedLabel(event.target.value)}
-            >
-              <option value="">All labels</option>
-              {allLabels.map((label) => <option key={label} value={label}>{label}</option>)}
-            </select>
+              labels={allLabels}
+              labelCounts={labelCounts}
+              totalCount={totalSnippets}
+              onChange={setSelectedLabel}
+            />
             {allLabels.length > 0 && (
               <button
                 type="button"
@@ -944,9 +945,9 @@ const SnippetContainer = () => {
                   <input
                     className="modal-editor-title"
                     type="text"
-                    placeholder={isCreatingSnippet ? "Title (optional)" : "Snippet title"}
+                    placeholder="Title"
                     aria-label="Snippet title"
-                    autoFocus
+                    autoFocus={!isCreatingSnippet}
                     disabled={isSaving}
                     value={currentSnippet.title || ""}
                     onChange={(e) =>
@@ -1011,10 +1012,10 @@ const SnippetContainer = () => {
                 {modalTab !== "preview" && (
                   <textarea
                     className="modal-editor-body"
-                    aria-label="Snippet content"
+                    autoFocus={isCreatingSnippet} data-autofocus={isCreatingSnippet ? "true" : undefined} aria-label="Snippet content"
                     disabled={isSaving}
                     value={currentSnippet.data || ""}
-                    placeholder="Write markdown or code snippets with ```language ... ```"
+                    placeholder={"Type plain text, markdown, or code here...\n\nExample:\nMy Python helper\n\n```python\ndef greet(name):\n    return f\"Hello, {name}!\"\n```\n\n**Bold**, *italic*, - list item"}
                     onChange={(e) =>
                       handleUpdateSnippet(currentSnippet.id, {
                         ...currentSnippet,
@@ -1039,7 +1040,7 @@ const SnippetContainer = () => {
                 data-state={createError ? "error" : autosaveStatus}
               >
                 {isCreatingSnippet ? (
-                  createError || (isSaving ? "Creating snippet..." : "Add a title or content, then create your snippet.")
+                  createError || (isSaving ? "Creating snippet..." : null)
                 ) : (
                   <>
                     {autosaveStatus === "saving" && "Saving changes..."}
@@ -1072,6 +1073,31 @@ const SnippetContainer = () => {
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
                     <span>Export .md</span>
+                  </button>
+                )}
+
+                {!isCreatingSnippet && (
+                  <button
+                    type="button"
+                    className={`ghost-button action-btn-icon ${modalCopied ? "copied" : ""}`}
+                    onClick={async () => {
+                      try {
+                        const codeMatch = (currentSnippet.data || "").match(/```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/);
+                        const textToCopy = codeMatch ? codeMatch[1].trim() : (currentSnippet.data || "");
+                        await navigator.clipboard.writeText(textToCopy);
+                        setModalCopied(true);
+                        setTimeout(() => setModalCopied(false), 2000);
+                      } catch (err) {
+                        console.error("Failed to copy snippet:", err);
+                      }
+                    }}
+                    title={modalCopied ? "Copied to clipboard!" : "Copy code to clipboard"}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    <span>{modalCopied ? "Copied!" : "Copy"}</span>
                   </button>
                 )}
 

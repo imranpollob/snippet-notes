@@ -67,7 +67,7 @@ export default function SyncLocalModal({
             {localSnippets.map((snippet) => (
               <div key={snippet.id} className="sync-preview-item">
                 <div className="sync-preview-item-info">
-                  <span className="sync-preview-title">{snippet.title || "Untitled Snippet"}</span>
+                  <span className="sync-preview-title">{snippet.title || ""}</span>
                   <span className="sync-preview-meta">
                     {snippet.createdAt
                       ? new Date(snippet.createdAt).toLocaleDateString(undefined, {

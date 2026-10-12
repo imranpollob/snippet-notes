@@ -118,7 +118,7 @@ export default function SnippetLabelsEditor({
 
   return (
     <div className="modal-labels-row">
-      <span className="modal-labels-heading">Labels</span>
+      {null}
       <div className="modal-labels-scroll">
         {navigation.hasOverflow && (
           <button
@@ -141,7 +141,7 @@ export default function SnippetLabelsEditor({
           tabIndex={navigation.hasOverflow ? 0 : -1}
           onScroll={updateNavigation}
         >
-          {labels.length === 0 && <span className="modal-labels-empty">No labels yet</span>}
+          {null}
           {labels.map((label) => (
             <span key={label} className="label-chip" role="listitem">
               <span className="label-chip-text" title={label}>#{label}</span>

@@ -84,7 +84,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
     const trimmedData = data.trim();
     if (!trimmedData && !title.trim()) return;
 
-    const finalTitle = title.trim() || suggestedTitle || "Untitled snippet";
+    const finalTitle = title.trim();
 
     await addSnippet({
       title: finalTitle,
@@ -93,7 +93,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
       labels,
     });
     resetForm();
-  }, [title, data, suggestedTitle, effectiveLanguage, labels, addSnippet, resetForm, isSaving]);
+  }, [title, data, effectiveLanguage, labels, addSnippet, resetForm, isSaving]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -125,8 +125,8 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
               type="text"
               placeholder={
                 suggestedTitle
-                  ? `Title: "${suggestedTitle}" (or type your own)`
-                  : "Snippet title (or leave blank for auto-title)..."
+                  ? `Title (optional — leave blank to keep it untitled)`
+                  : "Snippet title (optional)..."
               }
               value={title}
               onChange={(e) => setTitle(e.target.value)}

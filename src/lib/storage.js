@@ -75,7 +75,7 @@ export const addLocalSnippet = (snippet) => {
   const detectedLang = snippet.language || detectLanguage(snippet.data || "");
   const effectiveTitle = snippet.title && snippet.title.trim()
     ? snippet.title.trim()
-    : extractSmartTitle(snippet.data || "", detectedLang);
+    : "";
 
   const newSnippet = {
     id: `snippet-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
