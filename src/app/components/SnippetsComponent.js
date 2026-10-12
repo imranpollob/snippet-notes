@@ -47,12 +47,6 @@ const SnippetsComponent = ({
               role="listitem"
               tabIndex={0}
               onClick={() => onCardClick(snippet)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onCardClick(snippet);
-                }
-              }}
             >
               {/* Row top: Lang badge + Title + meta */}
               <div className="row-top-line">
@@ -98,12 +92,6 @@ const SnippetsComponent = ({
             role="listitem"
             tabIndex={0}
             onClick={() => onCardClick(snippet)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onCardClick(snippet);
-              }
-            }}
           >
             {snippet.pinned && (
               <div className="card-pinned-row">

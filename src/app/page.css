@@ -33,26 +33,21 @@
 .brand-lockup {
   display: flex;
   align-items: center;
-  gap: 0.9rem;
+  gap: 0.5rem;
 }
 
 .brand-logo-frame {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.12);
-  overflow: hidden;
   flex-shrink: 0;
 }
 
 .brand-logo-img {
   width: 40px;
-  height: auto;
+  height: 40px;
   object-fit: contain;
 }
 
@@ -2327,6 +2322,60 @@ mark.highlight {
   font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+/* Editor footer: uniform, standard-size buttons with an inline bordered shortcut hint */
+.modal-editor-actions .ghost-button,
+.modal-editor-actions .danger-button,
+.modal-editor-actions .primary-action {
+  min-height: 38px;
+  padding: 0.4rem 1rem;
+  gap: 0.3rem;
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Hint goes on a second line under the label */
+.modal-editor-actions .ghost-button:has(.btn-kbd),
+.modal-editor-actions .danger-button:has(.btn-kbd),
+.modal-editor-actions .primary-action:has(.btn-kbd) {
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Buttons share one row height (the tallest button sets it) */
+.modal-editor-actions .modal-left-actions,
+.modal-editor-actions .modal-right-actions,
+.modal-editor-actions .delete-confirm-group {
+  align-items: stretch;
+}
+
+.modal-editor-actions .delete-confirm-text {
+  display: flex;
+  align-items: center;
+}
+
+.modal-editor-actions .btn-kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+  color: inherit;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 5px;
+  box-shadow: none;
+  opacity: 0.85;
+}
+
+.modal-editor-actions .primary-action .btn-kbd {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.55);
 }
 
 /* Secondary Modals (Shortcuts, Backup) */

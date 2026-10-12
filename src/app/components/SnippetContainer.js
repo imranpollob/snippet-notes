@@ -158,9 +158,9 @@ const SnippetContainer = () => {
         ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName) ||
         document.activeElement?.isContentEditable;
 
-      // 1. Search: ⌘K or Ctrl+K or '/' (when outside inputs)
+      // 1. Search: Shift+K or '/' (when outside inputs)
       if (
-        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") ||
+        (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "k") ||
         (e.key === "/" && !isInputActive)
       ) {
         e.preventDefault();
@@ -169,10 +169,8 @@ const SnippetContainer = () => {
         return;
       }
 
-      // 2. Create new snippet: 'C' (when outside inputs) or ⌥N / Alt+N
-      // Avoids browser conflict with ⌘N / Ctrl+N (which opens a new browser window)
+      // 2. Create new snippet: 'C' (when outside inputs)
       if (
-        (e.altKey && e.key.toLowerCase() === "n") ||
         (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "c" && !isInputActive)
       ) {
         e.preventDefault();
@@ -475,26 +473,20 @@ const SnippetContainer = () => {
   };
 
   // Editor modal shortcuts: work regardless of focus placement while a snippet is open.
-  // ⌘/Ctrl+Enter = Done, ⌘/Ctrl+Backspace = Delete (press once to arm, again to confirm).
+  // Shift+Enter = Done, Shift+Backspace = Delete (press once to arm, again to confirm), even while typing.
   // closeModal/handleDeleteSnippet are stable in behavior; resubscribing only on state.
   useEffect(() => {
     if (!isModalOpen || !currentSnippet) return;
 
     const handleModalKeyDown = (event) => {
-      const target = event.target;
-      const isEditing =
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      if (event.shiftKey && event.key === "Enter") {
         event.preventDefault();
         if (isCreatingSnippet) createSnippet();
         else closeModal();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key === "Backspace") {
+      if (event.shiftKey && event.key === "Backspace") {
         if (isCreatingSnippet) return;
-        // Never hijack editing keys inside text fields
-        if (isEditing) return;
         event.preventDefault();
         if (isDeleteConfirming) {
           handleDeleteSnippet(currentSnippet.id);
@@ -686,8 +678,8 @@ const SnippetContainer = () => {
             <Image
               src={logoPic}
               alt="Snippets Logo"
-              width={42}
-              height={42}
+              width={40}
+              height={40}
               priority
               className="brand-logo-img"
             />
@@ -768,7 +760,7 @@ const SnippetContainer = () => {
                 ×
               </button>
             )}
-            <kbd className="search-hub-kbd">⌘K</kbd>
+            <kbd className="search-hub-kbd">Shift+K</kbd>
           </div>
 
           {/* Create in the shared editor */}
@@ -776,7 +768,7 @@ const SnippetContainer = () => {
             type="button"
             className="new-snippet-btn"
             onClick={openCreateModal}
-            title="Create new snippet (Press C or ⌥N)"
+            title="Create new snippet (Press C)"
           >
             <span className="capture-btn-icon" aria-hidden="true">+</span>
             <span className="capture-btn-text">New snippet</span>
@@ -947,7 +939,6 @@ const SnippetContainer = () => {
                     type="text"
                     placeholder="Title"
                     aria-label="Snippet title"
-                    autoFocus={!isCreatingSnippet}
                     disabled={isSaving}
                     value={currentSnippet.title || ""}
                     onChange={(e) =>
@@ -1012,7 +1003,7 @@ const SnippetContainer = () => {
                 {modalTab !== "preview" && (
                   <textarea
                     className="modal-editor-body"
-                    autoFocus={isCreatingSnippet} data-autofocus={isCreatingSnippet ? "true" : undefined} aria-label="Snippet content"
+                    autoFocus data-autofocus="true" aria-label="Snippet content"
                     disabled={isSaving}
                     value={currentSnippet.data || ""}
                     placeholder={"Type plain text, markdown, or code here...\n\nExample:\nMy Python helper\n\n```python\ndef greet(name):\n    return f\"Hello, {name}!\"\n```\n\n**Bold**, *italic*, - list item"}
@@ -1072,7 +1063,7 @@ const SnippetContainer = () => {
                       <polyline points="7 10 12 15 17 10" />
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
-                    <span>Export .md</span>
+                    <span>Export</span>
                   </button>
                 )}
 
@@ -1107,7 +1098,7 @@ const SnippetContainer = () => {
                   onClick={() => handleUpdateSnippet(currentSnippet.id, { pinned: !currentSnippet.pinned })}
                   disabled={isSaving}
                 >
-                  <span>{currentSnippet.pinned ? "★ Pinned" : "☆ Pin snippet"}</span>
+                  <span>{currentSnippet.pinned ? "★ Pinned" : "☆ Pin"}</span>
                 </button>
               </div>
 
@@ -1119,10 +1110,10 @@ const SnippetContainer = () => {
                       type="button"
                       className="danger-button"
                       onClick={() => handleDeleteSnippet(currentSnippet.id)}
-                      title="Confirm delete (⌘/Ctrl+Backspace)"
+                      title="Confirm delete (Shift+Backspace)"
                     >
                       <span>Yes, delete</span>
-                      <kbd className="btn-kbd">⌘⌫</kbd>
+                      <kbd className="btn-kbd">Shift+⌫</kbd>
                     </button>
                     <button
                       type="button"
@@ -1139,10 +1130,10 @@ const SnippetContainer = () => {
                     type="button"
                     className="danger-button"
                     onClick={() => setIsDeleteConfirming(true)}
-                    title="Delete snippet (⌘/Ctrl+Backspace, twice to confirm)"
+                    title="Delete snippet (Shift+Backspace, twice to confirm)"
                   >
                     <span>Delete</span>
-                    <kbd className="btn-kbd">⌘⌫</kbd>
+                    <kbd className="btn-kbd">Shift+⌫</kbd>
                   </button>
                 ))}
                 <button
@@ -1150,10 +1141,10 @@ const SnippetContainer = () => {
                   className="primary-action"
                   onClick={isCreatingSnippet ? createSnippet : closeModal}
                   disabled={isSaving || (isCreatingSnippet && !currentSnippet.title.trim() && !currentSnippet.data.trim())}
-                  title={isCreatingSnippet ? "Create snippet (⌘/Ctrl+Enter)" : "Done (⌘/Ctrl+Enter)"}
+                  title={isCreatingSnippet ? "Create snippet (Shift+Enter)" : "Done (Shift+Enter)"}
                 >
                   <span>{isCreatingSnippet ? (isSaving ? "Creating..." : "Create snippet") : "Done"}</span>
-                  <kbd className="btn-kbd">⌘↵</kbd>
+                  <kbd className="btn-kbd">Shift+↵</kbd>
                 </button>
               </div>
             </div>

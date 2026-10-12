@@ -101,7 +101,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
   };
 
   const handleKeyDown = async (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    if (event.shiftKey && event.key === "Enter") {
       event.preventDefault();
       await submitSnippet();
     }
@@ -259,7 +259,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
               aria-disabled={isDisabled}
             >
               <span>{isSaving ? "Saving..." : "Save Snippet"}</span>
-              <kbd className="btn-kbd">⌘↵</kbd>
+              <kbd className="btn-kbd">Shift+↵</kbd>
             </button>
           </div>
         </div>

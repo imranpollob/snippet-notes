@@ -196,7 +196,7 @@ export default function SnippetLabelsEditor({
             if (!pickerRef.current?.contains(event.relatedTarget)) setIsPickerOpen(false);
           }}
           onKeyDown={(event) => {
-            if (event.metaKey || event.ctrlKey) return;
+            if (event.shiftKey) return;
             if (event.key === "Escape" && isPickerOpen) {
               event.preventDefault();
               event.stopPropagation();
