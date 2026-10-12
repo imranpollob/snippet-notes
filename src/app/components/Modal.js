@@ -64,10 +64,6 @@ const Modal = ({ show, onClose, children, maxWidth = "860px", onEscapeKey = null
     return null;
   }
 
-  const handleBackdropClick = () => {
-    onClose();
-  };
-
   return (
     <div
       ref={backdropRef}
@@ -75,7 +71,6 @@ const Modal = ({ show, onClose, children, maxWidth = "860px", onEscapeKey = null
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
-      onClick={handleBackdropClick}
     >
       <div
         className="modal-container"

@@ -11,6 +11,7 @@ const SnippetsComponent = ({
   onCardClick,
   searchQuery,
   viewMode = "grid", // "grid" | "list"
+  onToggleCheckbox,
 }) => {
   const highlightMatch = (text, query) => {
     if (!query || !text) {
@@ -110,7 +111,11 @@ const SnippetsComponent = ({
 
             {/* Formatted Content Preview */}
             <div className="snippet-card-body">
-              <RichContent content={snippet.data} isPreview={true} />
+              <RichContent
+                content={snippet.data}
+                isPreview={true}
+                onToggleCheckbox={onToggleCheckbox && ((index, checked) => onToggleCheckbox(snippet, index, checked))}
+              />
             </div>
 
             {/* Labels at the bottom of the card */}

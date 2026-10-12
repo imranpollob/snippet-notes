@@ -25,6 +25,7 @@ import {
   exportSnippetAsMarkdown,
   normalizeLabels,
   detectLanguage,
+  setCheckboxAt,
 } from "../../lib/storage";
 import { auth, db, isFirebaseConfigured, onAuthStateChanged } from "../../../firebase";
 import {
@@ -39,7 +40,6 @@ import {
   writeBatch,
 } from "firebase/firestore";
 
-const AUTOSAVE_DELAY = 800;
 
 const SnippetContainer = () => {
   const [snippets, setSnippets] = useState([]);
@@ -344,6 +344,7 @@ const SnippetContainer = () => {
     try {
       let updated;
       if (user && db && isFirebaseConfigured) {
+        updates = { ...updates, updatedAt: Date.now() };
         await updateDoc(doc(db, "snippets", snippetId), updates);
       } else {
         updated = updateLocalSnippet(snippetId, updates);
@@ -387,16 +388,16 @@ const SnippetContainer = () => {
       autosaveFeedbackTimerRef.current = null;
     }
 
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
-    const { id: ignoredId, ...dataToSave } = { ...currentSnippet, ...updates };
+    // Edits are held and saved once, when the modal is closed (Done / X / Esc)
+    const { id: ignoredId, ...dataToSave } = {
+      ...currentSnippet,
+      ...pendingSaveRef.current?.updates,
+      ...updates,
+    };
     pendingSaveRef.current = {
       id: snippetId,
       updates: dataToSave,
     };
-    typingTimeoutRef.current = setTimeout(flushPendingSave, AUTOSAVE_DELAY);
   };
 
   const handleDeleteSnippet = async (snippetId) => {
@@ -423,7 +424,7 @@ const SnippetContainer = () => {
     if (user && db && isFirebaseConfigured) {
       const target = snippets.find((s) => s.id === snippetId);
       if (target) {
-        handleUpdateSnippet(snippetId, { pinned: !target.pinned });
+        persistSnippetUpdates(snippetId, { pinned: !target.pinned });
       }
     } else {
       const updated = togglePinLocalSnippet(snippetId);
@@ -910,6 +911,9 @@ const SnippetContainer = () => {
             onCardClick={openModal}
             searchQuery={searchQuery}
             onTogglePin={handleTogglePin}
+            onToggleCheckbox={(snippet, index, checked) =>
+              persistSnippetUpdates(snippet.id, { data: setCheckboxAt(snippet.data || "", index, checked) })
+            }
             viewMode={viewMode}
           />
         )}
@@ -1007,7 +1011,7 @@ const SnippetContainer = () => {
                     autoFocus data-autofocus="true" aria-label="Snippet content"
                     disabled={isSaving}
                     value={currentSnippet.data || ""}
-                    placeholder={"Type plain text, markdown, or code here...\n\nExample:\nMy Python helper\n\n```python\ndef greet(name):\n    return f\"Hello, {name}!\"\n```\n\n**Bold**, *italic*, - list item"}
+                    placeholder={"Type plain text, markdown, or code here...\n\nExample:\nMy Python helper\n\n```python\ndef greet(name):\n    return f\"Hello, {name}!\"\n```\n\n**Bold**, *italic*\n\n- list item\n- [ ] todo\n- [x] done"}
                     onChange={(e) =>
                       handleUpdateSnippet(currentSnippet.id, {
                         ...currentSnippet,
@@ -1024,7 +1028,16 @@ const SnippetContainer = () => {
 
                 {modalTab !== "write" && (
                   <div className="modal-preview-body">
-                    <RichContent content={currentSnippet.data || ""} isPreview={true} />
+                    <RichContent
+                      content={currentSnippet.data || ""}
+                      isPreview={true}
+                      onToggleCheckbox={(index, checked) =>
+                        handleUpdateSnippet(currentSnippet.id, {
+                          ...currentSnippet,
+                          data: setCheckboxAt(currentSnippet.data || "", index, checked),
+                        })
+                      }
+                    />
                   </div>
                 )}
               </div>
@@ -1042,9 +1055,8 @@ const SnippetContainer = () => {
                   <>
                     {autosaveStatus === "saving" && "Saving changes..."}
                     {autosaveStatus === "saved" && "✓ All changes saved"}
-                    {autosaveStatus === "pending" && "Changes pending..."}
-                    {autosaveStatus === "error" && "Failed to autosave."}
-                    {autosaveStatus === "ready" && "Changes save automatically"}
+                    {autosaveStatus === "pending" && "Unsaved changes — click Done or Close to save"}
+                    {autosaveStatus === "error" && "Failed to save changes."}
                   </>
                 )}
               </div>
@@ -1192,6 +1204,27 @@ const SnippetContainer = () => {
         isSyncing={isSyncing}
         userEmail={user?.email}
       />
+
+      <footer className="app-footer">
+        <span>
+          Built by{" "}
+          <a className="app-footer-name" href="https://github.com/imranpollob" target="_blank" rel="noopener noreferrer">
+            Imran Pollob
+          </a>
+        </span>
+        <a
+          className="app-footer-link"
+          href="https://github.com/imranpollob/snippet-notes"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Snippet Notes on GitHub"
+          title="View source on GitHub"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.69 1.25 3.35.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.83 1.18 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
+          </svg>
+        </a>
+      </footer>
 
       {/* Floating Toast Notification */}
       {toastMessage && (

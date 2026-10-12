@@ -254,7 +254,7 @@ export const CodeBlock = ({ code, language = "javascript" }) => {
  * Rich Content Renderer
  * Parses markdown paragraphs, headings, bullet lists, inline bold/code, and fenced code blocks
  */
-export const RichContent = ({ content, isPreview = false, maxLines = null }) => {
+export const RichContent = ({ content, isPreview = false, maxLines = null, onToggleCheckbox = null }) => {
   if (!content) return null;
 
   // Split by fenced code blocks: ```lang ... ```
@@ -268,6 +268,7 @@ export const RichContent = ({ content, isPreview = false, maxLines = null }) => 
       parts.push({
         type: "prose",
         text: content.slice(lastIndex, match.index),
+        offset: lastIndex,
       });
     }
     parts.push({
@@ -282,6 +283,7 @@ export const RichContent = ({ content, isPreview = false, maxLines = null }) => 
     parts.push({
       type: "prose",
       text: content.slice(lastIndex),
+      offset: lastIndex,
     });
   }
 
@@ -312,9 +314,12 @@ export const RichContent = ({ content, isPreview = false, maxLines = null }) => 
 
         // Render prose lines
         const lines = part.text.split("\n");
+        let lineOffset = part.offset;
         return (
           <div key={index} className="prose-segment">
             {lines.map((line, lineIdx) => {
+              const lineStart = lineOffset;
+              lineOffset += line.length + 1;
               const trimmed = line.trim();
               if (!trimmed) {
                 return <div key={lineIdx} className="prose-empty-line" />;
@@ -329,6 +334,27 @@ export const RichContent = ({ content, isPreview = false, maxLines = null }) => 
               }
               if (trimmed.startsWith("# ")) {
                 return <h2 key={lineIdx} className="prose-h1">{renderInlineFormatted(trimmed.slice(2))}</h2>;
+              }
+
+              // Task list items: - [ ] todo / - [x] done
+              const task = line.match(/^(\s*)[-*+]\s+\[([ xX]?)\](?:\s+(.*))?$/);
+              if (task) {
+                const checked = task[2] !== " " && task[2] !== "";
+                const boxIndex = lineStart + line.indexOf("[") + 1;
+                return (
+                  <div key={lineIdx} className={`prose-list-item prose-task ${checked ? "is-done" : ""}`}>
+                    <input
+                      type="checkbox"
+                      className="prose-checkbox"
+                      checked={checked}
+                      disabled={!onToggleCheckbox}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => onToggleCheckbox?.(boxIndex, !checked)}
+                      aria-label={task[3] || "Task"}
+                    />
+                    <span>{renderInlineFormatted(task[3] || "")}</span>
+                  </div>
+                );
               }
 
               // Bullet lists

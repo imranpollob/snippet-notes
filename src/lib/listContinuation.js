@@ -1,4 +1,4 @@
-const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])(\s+)(.*)$/;
+const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])(\s+)(\[[ xX]?\]\s+)?(.*)$/;
 
 /**
  * Enter-key handler for markdown textareas: continues bulleted and numbered
@@ -21,7 +21,7 @@ export function continueListOnEnter(event, setValue) {
   const match = before.slice(lineStart).match(LIST_ITEM);
   if (!match) return;
 
-  const [, indent, marker, space, content] = match;
+  const [, indent, marker, space, checkbox, content] = match;
   event.preventDefault();
 
   let next;

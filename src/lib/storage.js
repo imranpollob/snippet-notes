@@ -321,3 +321,7 @@ ${snippet.data || ""}
   URL.revokeObjectURL(url);
 };
 
+
+// Flip the task checkbox whose "[ ]"/"[x]" marker character sits at `index`
+export const setCheckboxAt = (text, index, checked) =>
+  text.slice(0, index) + (checked ? "x" : " ") + text.slice(text[index] === "]" ? index : index + 1);

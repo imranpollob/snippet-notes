@@ -17,6 +17,42 @@
   gap: clamp(1.25rem, 2.5vw, 2rem);
 }
 
+/* Bottom bar */
+.app-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.app-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-footer-name {
+  color: var(--color-primary) !important;
+  font-weight: var(--font-weight-semibold);
+}
+
+.app-footer-name:hover {
+  text-decoration: underline;
+}
+
+.app-footer a:hover {
+  color: var(--color-primary);
+}
+
+.app-footer-link {
+  display: inline-flex;
+  align-items: center;
+}
+
 /* --------------------------------------------------------------------------
    Header & Brand Lockup
    -------------------------------------------------------------------------- */
@@ -1701,6 +1737,24 @@ mark.highlight {
   align-items: flex-start;
   gap: 0.5rem;
   padding-left: 0.5rem;
+}
+
+.prose-checkbox {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin: 0.2rem 0 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.prose-checkbox:disabled {
+  cursor: default;
+}
+
+.prose-task.is-done > span {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
 }
 
 .prose-bullet {
