@@ -12,7 +12,29 @@ const SnippetsComponent = ({
   searchQuery,
   viewMode = "grid", // "grid" | "list"
   onToggleCheckbox,
+  isSelecting = false,
+  selectedIds = new Set(),
+  onToggleSelection,
 }) => {
+  const selectionControl = (snippet) => (
+    <label className="snippet-selection-control" onClick={(event) => event.stopPropagation()}>
+      <input
+        type="checkbox"
+        checked={selectedIds.has(snippet.id)}
+        onChange={() => onToggleSelection(snippet.id)}
+        aria-label={`Select ${snippet.title || snippet.data?.split("\n")[0]?.slice(0, 60) || "untitled snippet"}`}
+      />
+      <span>{selectedIds.has(snippet.id) ? "Selected" : "Select"}</span>
+    </label>
+  );
+  const activate = (snippet) => isSelecting ? onToggleSelection(snippet.id) : onCardClick(snippet);
+  const handleKeyDown = (event, snippet) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      activate(snippet);
+    }
+  };
   const highlightMatch = (text, query) => {
     if (!query || !text) {
       return text;
@@ -44,14 +66,16 @@ const SnippetsComponent = ({
           return (
             <div
               key={snippet.id}
-              className={`snippet-row-item ${snippet.pinned ? "is-pinned" : ""}`}
+              className={`snippet-row-item ${snippet.pinned ? "is-pinned" : ""} ${isSelecting ? "is-selecting" : ""} ${selectedIds.has(snippet.id) ? "is-selected" : ""}`}
               role="listitem"
-              tabIndex={0}
-              onClick={() => onCardClick(snippet)}
+              tabIndex={isSelecting ? -1 : 0}
+              onClick={() => activate(snippet)}
+              onKeyDown={(event) => handleKeyDown(event, snippet)}
             >
               {/* Row top: Lang badge + Title + meta */}
               <div className="row-top-line">
                 <div className="row-main-col">
+                  {isSelecting && selectionControl(snippet)}
                   {snippet.pinned && (
                     <span className="pin-indicator" title="Pinned snippet">
                       ★
@@ -89,11 +113,13 @@ const SnippetsComponent = ({
         return (
           <article
             key={snippet.id}
-            className={`snippet-card ${snippet.pinned ? "is-pinned" : ""}`}
+            className={`snippet-card ${snippet.pinned ? "is-pinned" : ""} ${isSelecting ? "is-selecting" : ""} ${selectedIds.has(snippet.id) ? "is-selected" : ""}`}
             role="listitem"
-            tabIndex={0}
-            onClick={() => onCardClick(snippet)}
+            tabIndex={isSelecting ? -1 : 0}
+            onClick={() => activate(snippet)}
+            onKeyDown={(event) => handleKeyDown(event, snippet)}
           >
+            {isSelecting && selectionControl(snippet)}
             {snippet.pinned && (
               <div className="card-pinned-row">
                 <span className="pin-indicator" title="Pinned snippet">
@@ -110,11 +136,11 @@ const SnippetsComponent = ({
             </header>) : null}
 
             {/* Formatted Content Preview */}
-            <div className="snippet-card-body">
+            <div className="snippet-card-body" inert={isSelecting ? "" : undefined}>
               <RichContent
                 content={snippet.data}
                 isPreview={true}
-                onToggleCheckbox={onToggleCheckbox && ((index, checked) => onToggleCheckbox(snippet, index, checked))}
+                onToggleCheckbox={!isSelecting && onToggleCheckbox ? ((index, checked) => onToggleCheckbox(snippet, index, checked)) : null}
               />
             </div>
 

@@ -61,12 +61,13 @@ export const getLocalSnippets = () => {
   }
 };
 
-export const setLocalSnippets = (snippets) => {
+export const setLocalSnippets = (snippets, { throwOnError = false } = {}) => {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snippets));
   } catch (error) {
     console.error("Error writing to localStorage:", error);
+    if (throwOnError) throw error;
   }
 };
 

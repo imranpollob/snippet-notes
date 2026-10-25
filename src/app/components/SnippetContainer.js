@@ -14,6 +14,9 @@ import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 import ExportImportModal from "./ExportImportModal";
 import ManageLabelsModal from "./ManageLabelsModal";
 import SyncLocalModal from "./SyncLocalModal";
+import BulkActionsBar from "./BulkActionsBar";
+import BulkActionModal from "./BulkActionModal";
+import { applyBulkChanges, buildBulkChanges, commitBulkChanges } from "../../lib/bulkSnippets";
 import { RichContent } from "../../lib/syntaxHighlight";
 import {
   getLocalSnippets,
@@ -61,6 +64,12 @@ const SnippetContainer = () => {
   const [isManageLabelsOpen, setIsManageLabelsOpen] = useState(false);
   const [modalLabelInput, setModalLabelInput] = useState("");
   const [modalCopied, setModalCopied] = useState(false);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkAction, setBulkAction] = useState(null);
+  const [bulkLabel, setBulkLabel] = useState("");
+  const [bulkError, setBulkError] = useState("");
+  const [isBulkBusy, setIsBulkBusy] = useState(false);
 
   // Approach B: Sync Local Snippets Modal state
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
@@ -76,6 +85,26 @@ const SnippetContainer = () => {
   const createRequestRef = useRef(false);
   const pendingSaveRef = useRef(null);
   const activeSnippetIdRef = useRef(null);
+  const bulkRequestRef = useRef(false);
+  const libraryOwnerRef = useRef(null);
+  libraryOwnerRef.current = user?.uid || null;
+
+  // A selection belongs to one library and must not survive an account switch.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setIsSelecting(false);
+    setBulkAction(null);
+    setBulkError("");
+  }, [user?.uid]);
+
+  useEffect(() => {
+    const existingIds = new Set(snippets.map((snippet) => snippet.id));
+    setSelectedIds((previous) => {
+      const next = new Set([...previous].filter((id) => existingIds.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+    if (!snippets.length) setIsSelecting(false);
+  }, [snippets]);
 
   const showToast = (message) => {
     setToastMessage(message);
@@ -151,7 +180,7 @@ const SnippetContainer = () => {
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Do not trigger global shortcuts when any modal or dialog is open
-      if (isSyncModalOpen || isModalOpen || isShortcutsOpen || isBackupOpen || isManageLabelsOpen) {
+      if (isSyncModalOpen || isModalOpen || isShortcutsOpen || isBackupOpen || isManageLabelsOpen || bulkAction) {
         return;
       }
 
@@ -195,7 +224,7 @@ const SnippetContainer = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, isSyncModalOpen, isModalOpen, isShortcutsOpen, isBackupOpen, isManageLabelsOpen]);
+  }, [searchQuery, isSyncModalOpen, isModalOpen, isShortcutsOpen, isBackupOpen, isManageLabelsOpen, bulkAction]);
 
   const fetchFirebaseSnippets = async (uid) => {
     if (!db) return [];
@@ -661,6 +690,91 @@ const SnippetContainer = () => {
 
   const totalSnippets = snippets.length;
   const visibleSnippets = filteredSnippets.length;
+  const selectedSnippets = snippets.filter((snippet) => selectedIds.has(snippet.id));
+  const selectedShownCount = filteredSnippets.filter((snippet) => selectedIds.has(snippet.id)).length;
+  const allShownSelected = visibleSnippets > 0 && selectedShownCount === visibleSnippets;
+
+  const toggleSelection = (id) => {
+    if (bulkRequestRef.current) return;
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllShown = () => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      filteredSnippets.forEach((snippet) => {
+        if (allShownSelected) next.delete(snippet.id);
+        else next.add(snippet.id);
+      });
+      return next;
+    });
+  };
+
+  const openBulkAction = (action) => {
+    setBulkError("");
+    setBulkLabel("");
+    setBulkAction(action);
+  };
+
+  const handleBulkAction = async () => {
+    if (bulkRequestRef.current || !bulkAction || !selectedSnippets.length) return;
+    const owner = libraryOwnerRef.current;
+    let committedCount = 0;
+    let changes = [];
+    bulkRequestRef.current = true;
+    setIsBulkBusy(true);
+    setBulkError("");
+    try {
+      const cleanLabel = bulkLabel.trim().replace(/^#+/, "").trim();
+      const label = allLabels.find((name) => name.toLowerCase() === cleanLabel.toLowerCase()) || cleanLabel;
+      changes = buildBulkChanges(snippets, selectedIds, { type: bulkAction, label });
+      const cloud = user && db && isFirebaseConfigured;
+      await commitBulkChanges(changes, {
+        chunkSize: cloud ? 500 : Math.max(1, changes.length),
+        saveChunk: async (chunk) => {
+          if (cloud) {
+            const batch = writeBatch(db);
+            chunk.forEach(({ id, updates }) => {
+              const reference = doc(db, "snippets", id);
+              if (updates === null) batch.delete(reference);
+              else batch.update(reference, updates);
+            });
+            await batch.commit();
+          } else {
+            // Use the latest stored library and surface quota/write failures.
+            setLocalSnippets(applyBulkChanges(getLocalSnippets(), chunk), { throwOnError: true });
+          }
+        },
+        onCommitted: (chunk) => {
+          committedCount += chunk.length;
+          if (libraryOwnerRef.current !== owner) return;
+          setSnippets((previous) => applyBulkChanges(previous, chunk));
+        },
+      });
+      if (libraryOwnerRef.current !== owner) return;
+      setBulkAction(null);
+      showToast(bulkAction === "delete"
+        ? `Deleted ${committedCount} snippet${committedCount === 1 ? "" : "s"}.`
+        : committedCount > 0
+          ? `Added “${label}” to ${committedCount} snippet${committedCount === 1 ? "" : "s"}.`
+          : "All selected snippets already have this label.");
+    } catch (error) {
+      console.error("Bulk snippet action failed:", error);
+      if (libraryOwnerRef.current === owner) {
+        setBulkError(committedCount > 0
+          ? `${committedCount} of ${changes.length} changes saved. The rest could not be saved. Please try again.`
+          : "Could not save your changes. Your snippets are unchanged. Please try again.");
+      }
+    } finally {
+      bulkRequestRef.current = false;
+      setIsBulkBusy(false);
+    }
+  };
 
   return (
     <div className="page-shell">
@@ -840,19 +954,47 @@ const SnippetContainer = () => {
             </span>
           </div>
 
-          {(selectedLabel || searchQuery) && (
-            <button
-              type="button"
-              className="reset-filters-btn"
-              onClick={() => {
-                setSelectedLabel("");
-                setSearchQuery("");
-              }}
-            >
-              Reset Filters ×
-            </button>
-          )}
+          <div className="library-header-actions">
+            {(selectedLabel || searchQuery) && (
+              <button
+                type="button"
+                className="reset-filters-btn"
+                onClick={() => {
+                  setSelectedLabel("");
+                  setSearchQuery("");
+                }}
+              >
+                Reset Filters ×
+              </button>
+            )}
+            {totalSnippets > 0 && !isLoading && (
+              <button
+                type="button"
+                className={`ghost-button selection-mode-button ${isSelecting ? "is-active" : ""}`}
+                aria-pressed={isSelecting}
+                onClick={() => {
+                  setIsSelecting(!isSelecting);
+                  setSelectedIds(new Set());
+                }}
+              >
+                {isSelecting ? "Done selecting" : "Select snippets"}
+              </button>
+            )}
+          </div>
         </div>
+
+        {isSelecting && (
+          <BulkActionsBar
+            count={selectedSnippets.length}
+            hiddenCount={selectedSnippets.length - selectedShownCount}
+            allShownSelected={allShownSelected}
+            visibleCount={visibleSnippets}
+            onSelectAll={toggleAllShown}
+            onClear={() => setSelectedIds(new Set())}
+            onLabel={() => openBulkAction("label")}
+            onDelete={() => openBulkAction("delete")}
+          />
+        )}
 
         {isLoading && (
           <div className="loading-state">
@@ -906,9 +1048,24 @@ const SnippetContainer = () => {
               persistSnippetUpdates(snippet.id, { data: setCheckboxAt(snippet.data || "", index, checked) })
             }
             viewMode={viewMode}
+            isSelecting={isSelecting}
+            selectedIds={selectedIds}
+            onToggleSelection={toggleSelection}
           />
         )}
       </section>
+
+      <BulkActionModal
+        action={bulkAction}
+        snippets={selectedSnippets}
+        availableLabels={allLabels}
+        label={bulkLabel}
+        onLabelChange={setBulkLabel}
+        busy={isBulkBusy}
+        error={bulkError}
+        onClose={() => setBulkAction(null)}
+        onConfirm={handleBulkAction}
+      />
 
       {/* Focused Editor Modal */}
       <Modal
