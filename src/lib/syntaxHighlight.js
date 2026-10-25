@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { parseMarkdownTable } from "./markdownTable";
 
 // Token patterns for multi-language syntax highlighting
 const KEYWORDS = new Set([
@@ -252,7 +253,7 @@ export const CodeBlock = ({ code, language = "javascript" }) => {
 
 /**
  * Rich Content Renderer
- * Parses markdown paragraphs, headings, bullet lists, inline bold/code, and fenced code blocks
+ * Parses markdown paragraphs, headings, lists, tables, inline formatting, and fenced code blocks
  */
 export const RichContent = ({ content, isPreview = false, maxLines = null, onToggleCheckbox = null }) => {
   if (!content) return null;
@@ -315,14 +316,47 @@ export const RichContent = ({ content, isPreview = false, maxLines = null, onTog
         // Render prose lines
         const lines = part.text.split("\n");
         let lineOffset = part.offset;
+        let tableEndIndex = 0;
         return (
           <div key={index} className="prose-segment">
             {lines.map((line, lineIdx) => {
               const lineStart = lineOffset;
               lineOffset += line.length + 1;
+              if (lineIdx < tableEndIndex) return null;
               const trimmed = line.trim();
               if (!trimmed) {
                 return <div key={lineIdx} className="prose-empty-line" />;
+              }
+
+              const table = parseMarkdownTable(lines, lineIdx);
+              if (table) {
+                tableEndIndex = table.endIndex;
+                return (
+                  <div key={lineIdx} className="prose-table-scroll" role="region" aria-label="Markdown table" tabIndex={0}>
+                    <table className="prose-table">
+                      <thead>
+                        <tr>
+                          {table.headers.map((header, column) => (
+                            <th key={column} scope="col" style={{ textAlign: table.alignments[column] }}>
+                              {renderInlineFormatted(header)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {table.rows.map((row, rowIndex) => (
+                          <tr key={rowIndex}>
+                            {row.map((cell, column) => (
+                              <td key={column} style={{ textAlign: table.alignments[column] }}>
+                                {renderInlineFormatted(cell)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
               }
 
               // Headings

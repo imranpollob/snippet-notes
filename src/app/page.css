@@ -1710,6 +1710,44 @@ mark.highlight {
   height: 0.6rem;
 }
 
+.prose-table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.prose-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: inherit;
+}
+
+.prose-table th,
+.prose-table td {
+  min-width: 7rem;
+  padding: 0.65rem 0.85rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+  overflow-wrap: anywhere;
+}
+
+.prose-table th + th,
+.prose-table td + td {
+  border-left: 1px solid var(--color-border);
+}
+
+.prose-table th {
+  font-weight: var(--font-weight-semibold);
+  background: var(--code-bg);
+}
+
+.prose-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .prose-h1 {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);

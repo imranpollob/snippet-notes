@@ -159,11 +159,8 @@ const SnippetContainer = () => {
         ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName) ||
         document.activeElement?.isContentEditable;
 
-      // 1. Search: Shift+K or '/' (when outside inputs)
-      if (
-        (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "k") ||
-        (e.key === "/" && !isInputActive)
-      ) {
+      // 1. Search: '/' (when outside inputs)
+      if (e.key === "/" && !isInputActive) {
         e.preventDefault();
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
@@ -475,18 +472,12 @@ const SnippetContainer = () => {
   };
 
   // Editor modal shortcuts: work regardless of focus placement while a snippet is open.
-  // Shift+Enter = Done, Shift+Backspace = Delete (press once to arm, again to confirm), even while typing.
+  // Esc = Create / Done (handled by Modal), Shift+Backspace = Delete (press twice).
   // closeModal/handleDeleteSnippet are stable in behavior; resubscribing only on state.
   useEffect(() => {
     if (!isModalOpen || !currentSnippet) return;
 
     const handleModalKeyDown = (event) => {
-      if (event.shiftKey && event.key === "Enter") {
-        event.preventDefault();
-        if (isCreatingSnippet) createSnippet();
-        else closeModal();
-        return;
-      }
       if (event.shiftKey && event.key === "Backspace") {
         if (isCreatingSnippet) return;
         event.preventDefault();
@@ -762,7 +753,7 @@ const SnippetContainer = () => {
                 ×
               </button>
             )}
-            <kbd className="search-hub-kbd">Shift+K</kbd>
+            <kbd className="search-hub-kbd">/</kbd>
           </div>
 
           {/* Create in the shared editor */}
@@ -928,6 +919,8 @@ const SnippetContainer = () => {
         onEscapeKey={() => {
           if (isDeleteConfirming) {
             setIsDeleteConfirming(false);
+          } else if (isCreatingSnippet) {
+            createSnippet();
           } else {
             closeModal();
           }
@@ -1159,10 +1152,10 @@ const SnippetContainer = () => {
                   className="primary-action"
                   onClick={isCreatingSnippet ? createSnippet : closeModal}
                   disabled={isSaving || (isCreatingSnippet && !currentSnippet.title.trim() && !currentSnippet.data.trim())}
-                  title={isCreatingSnippet ? "Create snippet (Shift+Enter)" : "Done (Shift+Enter)"}
+                  title={isCreatingSnippet ? "Create snippet (Esc)" : "Done (Esc)"}
                 >
                   <span>{isCreatingSnippet ? (isSaving ? "Creating..." : "Create snippet") : "Done"}</span>
-                  <kbd className="btn-kbd">Shift+↵</kbd>
+                  <kbd className="btn-kbd">esc</kbd>
                 </button>
               </div>
             </div>

@@ -102,13 +102,9 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
   };
 
   const handleKeyDown = async (event) => {
-    if (event.shiftKey && event.key === "Enter") {
+    if (event.key === "Escape") {
       event.preventDefault();
       await submitSnippet();
-    }
-    if (event.key === "Escape" && onCancel) {
-      event.preventDefault();
-      onCancel();
     }
   };
 
@@ -256,7 +252,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
           <div className="quick-actions-strip">
             {onCancel && (
               <button type="button" className="ghost-button" onClick={onCancel}>
-                Cancel <kbd>Esc</kbd>
+                Cancel
               </button>
             )}
             <button
@@ -266,7 +262,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
               aria-disabled={isDisabled}
             >
               <span>{isSaving ? "Saving..." : "Save Snippet"}</span>
-              <kbd className="btn-kbd">Shift+↵</kbd>
+              <kbd className="btn-kbd">esc</kbd>
             </button>
           </div>
         </div>

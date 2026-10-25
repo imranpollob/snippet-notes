@@ -28,7 +28,7 @@ Your data lives in your browser by default. Nothing is sent anywhere unless you 
 ## Features
 
 - **One focused editor.** Create and edit in the same modal. New snippets get automatic language detection and a suggested title, and edits to existing snippets are saved as you type. Write, split, and preview modes are one click away for Markdown.
-- **Instant search.** Press `/` or `Shift + K` and filter across titles, content, labels, and languages as you type.
+- **Instant search.** Press `/` and filter across titles, content, labels, and languages as you type.
 - **Labels and pinning.** Organize snippets with labels, filter by them, and pin the ones you reach for most. Rename or delete labels across your whole library from one place.
 - **Two ways to browse.** Switch between rich cards with syntax highlighting and a compact list for scanning many snippets at once.
 - **Private by default.** Everything is stored in your browser's local storage. No tracking and no sign-in required.
@@ -43,8 +43,8 @@ Snippets is built to be driven from the keyboard. Press `?` anywhere in the app 
 | Action                       | Shortcut               |
 | :--------------------------- | :--------------------- |
 | New snippet                  | `C`                    |
-| Search                       | `/` or `Shift + K`     |
-| Create snippet / finish edit | `Shift + Enter`        |
+| Search                       | `/`                    |
+| Create snippet / finish edit | `Esc`                  |
 | Delete the open snippet      | `Shift + Backspace` ×2 |
 | Cancel, close, or clear      | `Esc`                  |
 | Show all shortcuts           | `?`                    |
