@@ -1072,6 +1072,32 @@
   font-weight: var(--font-weight-semibold);
 }
 
+/* Markdown formatting controls */
+.markdown-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.4rem;
+}
+
+.markdown-toolbar button {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.markdown-toolbar button:hover:not(:disabled),
+.markdown-toolbar button:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.markdown-toolbar button:disabled { opacity: 0.5; cursor: default; }
+
 /* Editor text area */
 .quick-capture-textarea {
   width: 100%;
@@ -1923,6 +1949,11 @@ mark.highlight {
   margin: 0.3rem 0 0.2rem;
 }
 
+.prose-image {
+  max-width: 100%;
+  height: auto;
+}
+
 .prose-p {
   margin: 0;
 }
@@ -2347,6 +2378,13 @@ mark.highlight {
 
 .modal-editor-fields.layout-preview {
   grid-template-columns: 1fr;
+}
+
+.modal-editor-write {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .modal-editor-body {

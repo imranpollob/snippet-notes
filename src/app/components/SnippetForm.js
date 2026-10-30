@@ -3,7 +3,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { RichContent } from "../../lib/syntaxHighlight";
 import { continueListOnEnter } from "../../lib/listContinuation";
+import { trimDoubleClickSelection } from "../../lib/wordSelection";
 import { detectLanguage, extractSmartTitle } from "../../lib/storage";
+import MarkdownToolbar from "./MarkdownToolbar";
 
 const COMMON_LANGUAGES = [
   { id: "auto", label: "Auto Detect" },
@@ -173,9 +175,12 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
         {/* Editor Body */}
         <div className="quick-capture-editor">
           {activeTab === "write" ? (
+            <>
+            <MarkdownToolbar textareaRef={textareaRef} onChange={setData} onApplied={handleResize} disabled={isSaving} />
             <textarea
               ref={textareaRef}
               className="quick-capture-textarea"
+              aria-label="Snippet content"
               rows={5}
               placeholder="Paste code or type markdown notes here..."
               value={data}
@@ -184,6 +189,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
                 handleResize();
               }}
               onInput={handleResize}
+              onDoubleClick={trimDoubleClickSelection}
               onKeyDown={(e) =>
                 continueListOnEnter(e, (next) => {
                   setData(next);
@@ -191,6 +197,7 @@ const SnippetForm = ({ addSnippet, isSaving = false, onCancel = null, existingLa
                 })
               }
             />
+            </>
           ) : (
             <div className="quick-capture-preview">
               {data.trim() ? (

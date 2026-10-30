@@ -2,7 +2,7 @@ const LIST_ITEM = /^(\s*)([-*+]|\d+[.)])(\s+)(\[[ xX]?\]\s+)?(.*)$/;
 
 /**
  * Enter-key handler for markdown textareas: continues bulleted and numbered
- * lists, and ends the list when Enter is pressed on an empty item.
+ * lists and task checkboxes, and ends the list on an empty item.
  * `setValue(next)` must update the controlled value.
  */
 export function continueListOnEnter(event, setValue) {
@@ -33,7 +33,8 @@ export function continueListOnEnter(event, setValue) {
   } else {
     const numbered = marker.match(/^(\d+)([.)])$/);
     const nextMarker = numbered ? `${Number(numbered[1]) + 1}${numbered[2]}` : marker;
-    const insert = `\n${indent}${nextMarker}${space}`;
+    // A new task always starts unchecked, even after a completed task.
+    const insert = `\n${indent}${nextMarker}${space}${checkbox ? "[ ] " : ""}`;
     next = value.slice(0, selectionStart) + insert + value.slice(selectionEnd);
     caret = selectionStart + insert.length;
   }

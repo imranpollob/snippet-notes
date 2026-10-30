@@ -449,6 +449,18 @@ const renderInlineFormatted = (text) => {
       continue;
     }
 
+    // Image: ![description](url). Reject non-HTTP URL schemes.
+    const imageMatch = remaining.match(/^!\[([^\]]*)\]\(([^\s)]+)\)/);
+    if (imageMatch && (!/^[a-z][a-z\d+.-]*:/i.test(imageMatch[2]) || /^https?:\/\//i.test(imageMatch[2]))) {
+      parts.push(
+        // Markdown image URLs are supplied by the note author, so they cannot be configured ahead of time for next/image.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img key={key++} src={imageMatch[2]} alt={imageMatch[1]} className="prose-image" loading="lazy" />
+      );
+      remaining = remaining.slice(imageMatch[0].length);
+      continue;
+    }
+
     // Link: [label](url)
     const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)]+)\)/);
     if (linkMatch) {
@@ -462,7 +474,7 @@ const renderInlineFormatted = (text) => {
     }
 
     // Plain text until next special token
-    const nextSpecial = remaining.search(/[`*[]/);
+    const nextSpecial = remaining.search(/[`*\[!]/);
     if (nextSpecial === -1) {
       parts.push(remaining);
       break;

@@ -8,7 +8,9 @@ import SnippetsComponent from "./SnippetsComponent";
 import LabelFilterDropdown from "./LabelFilterDropdown";
 import SnippetLabelsEditor from "./SnippetLabelsEditor";
 import Modal from "./Modal";
+import MarkdownToolbar from "./MarkdownToolbar";
 import { continueListOnEnter } from "../../lib/listContinuation";
+import { trimDoubleClickSelection } from "../../lib/wordSelection";
 import ThemeToggle from "./ThemeToggle";
 import KeyboardShortcutsModal from "./KeyboardShortcutsModal";
 import ExportImportModal from "./ExportImportModal";
@@ -78,6 +80,7 @@ const SnippetContainer = () => {
   const [toastMessage, setToastMessage] = useState(null);
 
   const searchInputRef = useRef(null);
+  const modalTextareaRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const autosaveFeedbackTimerRef = useRef(null);
   const prevAuthUserRef = useRef(undefined);
@@ -1156,12 +1159,17 @@ const SnippetContainer = () => {
               {/* Modal Fields */}
               <div className={`modal-editor-fields layout-${modalTab}`}>
                 {modalTab !== "preview" && (
+                  <div className="modal-editor-write">
+                  <MarkdownToolbar textareaRef={modalTextareaRef} disabled={isSaving}
+                    onChange={(data) => handleUpdateSnippet(currentSnippet.id, { ...currentSnippet, data })} />
                   <textarea
+                    ref={modalTextareaRef}
                     className="modal-editor-body"
                     autoFocus data-autofocus="true" aria-label="Snippet content"
                     disabled={isSaving}
                     value={currentSnippet.data || ""}
                     placeholder={"Type plain text, markdown, or code here...\n\nExample:\nMy Python helper\n\n```python\ndef greet(name):\n    return f\"Hello, {name}!\"\n```\n\n**Bold**, *italic*\n\n- list item\n- [ ] todo\n- [x] done"}
+                    onDoubleClick={trimDoubleClickSelection}
                     onChange={(e) =>
                       handleUpdateSnippet(currentSnippet.id, {
                         ...currentSnippet,
@@ -1174,6 +1182,7 @@ const SnippetContainer = () => {
                       )
                     }
                   />
+                  </div>
                 )}
 
                 {modalTab !== "write" && (
